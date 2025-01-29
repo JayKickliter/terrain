@@ -1,3 +1,5 @@
+![crates.io](https://img.shields.io/crates/v/nasadem.svg)
+
 # NASA Digital Elevation Model (NASADEM)
 
 Load and query [NASADEM/SRTM] tiles for earth elevation data. NASADEM

@@ -1,3 +1,5 @@
+![Crates.io](https://img.shields.io/crates/v/nasadem.svg)
+
 # Geographic terrain profiling
 
 These libraries are extracted from [novalabsxyz/geoprop](https://github.com/novalabsxyz/geoprop) with all
