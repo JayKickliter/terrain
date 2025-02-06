@@ -13,7 +13,7 @@ do
         --constrain=1024                    \
         --elevation=45                      \
         --depth=8                           \
-        data/nasadem/1arcsecond/N38W105.hgt \
+        data/nasadem/1arcsecond/N36W113.hgt \
         target/animate/$(printf "%03d" $azimuth).jpg
 done
 

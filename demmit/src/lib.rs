@@ -34,13 +34,16 @@ pub fn shade(sun_az_rad: f32, sun_elev_rad: f32, data: &DMatrix<f32>) -> DMatrix
             let dzdx = get(x + 1, y) - get(x - 1, y);
             let dzdy = get(x, y + 1) - get(x, y - 1);
             let slope = (dzdx.powi(2) + dzdy.powi(2)).atan();
+            assert!(slope.is_finite());
+            assert!(slope.is_sign_positive());
             let aspect = f32::atan2(-dzdy, -dzdx);
             let reflection = (FRAC_PI_2 - aspect - sun_az_rad).cos()
                 * (slope).sin()
                 * (FRAC_PI_2 - sun_elev_rad).sin()
                 + slope.cos() * (FRAC_PI_2 - sun_elev_rad).cos();
             assert!(reflection.is_finite());
-            let reflection = reflection.clamp(0.2, 1.0);
+            assert!(reflection <= 1.0);
+            let reflection = reflection.max(0.0) * 0.7 + 0.3;
             #[allow(clippy::cast_sign_loss)]
             {
                 *out.index_mut((y as usize, x as usize)) = reflection;

@@ -1,6 +1,6 @@
 use camino::Utf8PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use demmit::{shade, matrix_to_image, tile_to_matrix};
+use demmit::{matrix_to_image, shade, tile_to_matrix};
 use image::imageops::{resize, FilterType};
 use nasadem::Tile;
 
@@ -24,7 +24,7 @@ struct RenderArgs {
     #[clap(long, short, default_value_t = 315.0)]
     azimuth: f32,
 
-    #[clap(long, short, default_value_t = 20.0)]
+    #[clap(long, short, default_value_t = 45.0)]
     elevation: f32,
 
     /// Resize output to this this value in both x and y dimensions.
