@@ -1,7 +1,7 @@
 use image::{ImageBuffer, Luma, Primitive};
 use nalgebra::{DMatrix, Scalar};
 use nasadem::Tile;
-use num_traits::AsPrimitive;
+use num_traits::FromPrimitive;
 use std::f32::consts::FRAC_PI_2;
 
 pub fn tile_to_matrix<T>(tile: &Tile) -> DMatrix<T>
@@ -29,6 +29,8 @@ pub fn shade(sun_az_rad: f32, sun_elev_rad: f32, data: &DMatrix<f32>) -> DMatrix
         ))
     };
 
+    let mut hist = vec![0; 256];
+
     for x in 0..i32::from(cols) {
         for y in 0..i32::from(rows) {
             let dzdx = get(x + 1, y) - get(x - 1, y);
@@ -37,46 +39,44 @@ pub fn shade(sun_az_rad: f32, sun_elev_rad: f32, data: &DMatrix<f32>) -> DMatrix
             assert!(slope.is_finite());
             assert!(slope.is_sign_positive());
             let aspect = f32::atan2(-dzdy, -dzdx);
-            let reflection = (FRAC_PI_2 - aspect - sun_az_rad).cos()
-                * (slope).sin()
-                * (FRAC_PI_2 - sun_elev_rad).sin()
-                + slope.cos() * (FRAC_PI_2 - sun_elev_rad).cos();
+            let reflection =
+                (aspect - sun_az_rad).cos() * (slope).sin() * (FRAC_PI_2 - sun_elev_rad).sin()
+                    + slope.cos() * (FRAC_PI_2 - sun_elev_rad).cos();
             assert!(reflection.is_finite());
             assert!(reflection <= 1.0);
-            let reflection = reflection.max(0.0) * 0.7 + 0.3;
+            let a = (reflection.max(0.0) * 255.0).trunc() as u8;
+            hist[a as usize] += 1;
             #[allow(clippy::cast_sign_loss)]
             {
-                *out.index_mut((y as usize, x as usize)) = reflection;
+                *out.index_mut((y as usize, x as usize)) = a as f32;
             }
         }
     }
+    // dbg!(hist);
     out
 }
 
 pub fn matrix_to_image<Pix>(data: &DMatrix<f32>) -> ImageBuffer<Luma<Pix>, Vec<Pix>>
 where
-    Pix: Primitive + Into<f32> + 'static,
-    f32: AsPrimitive<Pix>,
+    Pix: Primitive + Into<f32> + 'static + FromPrimitive,
 {
-    let mut min_shade = f32::MAX;
-    let mut max_shade = f32::MIN;
     let (rows, cols) = data.shape();
     let (rows, cols) = (
         u16::try_from(rows).expect("unexpected size"),
         u16::try_from(cols).expect("unexpected size"),
     );
+    // let mut hist = vec![0; 256];
     let f = |col, row| {
-        let shade: f32 = *data.index((row as usize, col as usize));
-        let shade = shade
-            .round()
-            .clamp(Pix::min_value().into(), Pix::max_value().into())
-            * 256.0;
-        min_shade = min_shade.min(shade);
-        max_shade = min_shade.max(shade);
-        let shade: Pix = shade.as_();
+        let shade = *data.index((row as usize, col as usize));
+        // assert!(shade <= 1.0);
+        // let shade = u8::from_f32(shade.round().max(0.0) * 255.0).unwrap();
+        // hist[shade as usize] += 1;
+        let shade = Pix::from_f32(shade).unwrap();
         Luma([shade])
     };
-    ImageBuffer::from_fn(u32::from(cols), u32::from(rows), f)
+    let a = ImageBuffer::from_fn(u32::from(cols), u32::from(rows), f);
+    // dbg!(&hist);
+    a
 }
 
 #[allow(clippy::cast_precision_loss)]
