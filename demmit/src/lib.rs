@@ -49,10 +49,9 @@ pub fn apply_shading(sun_az_rad: f32, sun_elev_rad: f32, data: &DMatrix<f32>) ->
                     + slope.cos() * (FRAC_PI_2 - sun_elev_rad).cos();
             assert!(reflection.is_finite());
             assert!(reflection <= 1.0);
-            let a = (reflection.max(0.0) * 255.0).trunc() as u8;
             #[allow(clippy::cast_sign_loss)]
             {
-                *out.index_mut((y as usize, x as usize)) = a as f32;
+                *out.index_mut((y as usize, x as usize)) = reflection;
             }
         }
     }
@@ -61,20 +60,34 @@ pub fn apply_shading(sun_az_rad: f32, sun_elev_rad: f32, data: &DMatrix<f32>) ->
 
 pub fn matrix_to_image<Pix>(data: &DMatrix<f32>) -> ImageBuffer<Luma<Pix>, Vec<Pix>>
 where
-    Pix: Primitive + Into<f32> + 'static + FromPrimitive,
+    Pix: Primitive + FromPrimitive + 'static,
+    f32: From<Pix>,
 {
     let (rows, cols) = data.shape();
     let (rows, cols) = (
         u16::try_from(rows).expect("unexpected size"),
         u16::try_from(cols).expect("unexpected size"),
     );
+
+    // We scale the floating point [0.0, 1.0] values by this factor to
+    // achieve max dynamic range.
+    let scalar = f32::from(Pix::max_value());
+
     let f = |col, row| {
-        let shade = *data.index((row as usize, col as usize));
-        let shade = Pix::from_f32(shade).unwrap();
+        let raw = *data.index((row as usize, col as usize));
+        // Reduce dynamic range a little by attenuating all values and
+        // adding a little bit ambient light.
+        let attenuated = raw * 0.8 + 0.2;
+        let bounded = attenuated.max(0.0);
+        assert!(bounded >= 0.0);
+        assert!(bounded <= 1.0);
+        let scaled = bounded * scalar;
+        let truncated = scaled.round();
+        let shade = Pix::from_f32(truncated)
+            .expect("we did not properly scale the floating point value prior to conversion");
         Luma([shade])
     };
-    let a = ImageBuffer::from_fn(u32::from(cols), u32::from(rows), f);
-    a
+    ImageBuffer::from_fn(u32::from(cols), u32::from(rows), f)
 }
 
 #[allow(clippy::cast_precision_loss)]

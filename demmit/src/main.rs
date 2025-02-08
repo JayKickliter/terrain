@@ -1,6 +1,6 @@
 use camino::Utf8PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use demmit::{matrix_to_image, apply_shading, tile_to_matrix};
+use demmit::{apply_shading, matrix_to_image, tile_to_matrix};
 use image::imageops::{resize, FilterType};
 use nasadem::Tile;
 
