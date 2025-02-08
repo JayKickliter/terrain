@@ -12,7 +12,7 @@ where
     DMatrix::from_row_iterator(h, w, tile.iter().map(|sample| T::from(sample.elevation())))
 }
 
-pub fn shade(sun_az_rad: f32, sun_elev_rad: f32, data: &DMatrix<f32>) -> DMatrix<f32> {
+pub fn apply_shading(sun_az_rad: f32, sun_elev_rad: f32, data: &DMatrix<f32>) -> DMatrix<f32> {
     // Translate from azimuth (clockwise starting at due north) to
     // conventional math angle (counter clockwise from y=0 and x>0).
     let sun_angle_rad = -(std::f32::consts::FRAC_PI_2 - sun_az_rad);
@@ -32,30 +32,30 @@ pub fn shade(sun_az_rad: f32, sun_elev_rad: f32, data: &DMatrix<f32>) -> DMatrix
         ))
     };
 
-    let mut hist = vec![0; 256];
-
     for x in 0..i32::from(cols) {
         for y in 0..i32::from(rows) {
-            let dzdx = get(x + 1, y) - get(x - 1, y);
-            let dzdy = get(x, y + 1) - get(x, y - 1);
-            let slope = (dzdx.powi(2) + dzdy.powi(2)).atan();
-            assert!(slope.is_finite());
-            assert!(slope.is_sign_positive());
-            let aspect = f32::atan2(-dzdy, -dzdx);
+            let (aspect, slope) = {
+                let dzdx = get(x + 1, y) - get(x - 1, y);
+                let dzdy = get(x, y + 1) - get(x, y - 1);
+                let slope = (dzdx.powi(2) + dzdy.powi(2)).atan();
+                assert!(slope.is_finite());
+                assert!(slope.is_sign_positive());
+                let aspect = f32::atan2(-dzdy, -dzdx);
+                assert!(slope.is_finite());
+                (aspect, slope)
+            };
             let reflection =
                 (aspect - sun_angle_rad).cos() * (slope).sin() * (FRAC_PI_2 - sun_elev_rad).sin()
                     + slope.cos() * (FRAC_PI_2 - sun_elev_rad).cos();
             assert!(reflection.is_finite());
             assert!(reflection <= 1.0);
             let a = (reflection.max(0.0) * 255.0).trunc() as u8;
-            hist[a as usize] += 1;
             #[allow(clippy::cast_sign_loss)]
             {
                 *out.index_mut((y as usize, x as usize)) = a as f32;
             }
         }
     }
-    // dbg!(hist);
     out
 }
 
@@ -68,17 +68,12 @@ where
         u16::try_from(rows).expect("unexpected size"),
         u16::try_from(cols).expect("unexpected size"),
     );
-    // let mut hist = vec![0; 256];
     let f = |col, row| {
         let shade = *data.index((row as usize, col as usize));
-        // assert!(shade <= 1.0);
-        // let shade = u8::from_f32(shade.round().max(0.0) * 255.0).unwrap();
-        // hist[shade as usize] += 1;
         let shade = Pix::from_f32(shade).unwrap();
         Luma([shade])
     };
     let a = ImageBuffer::from_fn(u32::from(cols), u32::from(rows), f);
-    // dbg!(&hist);
     a
 }
 
@@ -92,13 +87,6 @@ pub fn pyramid(rows: usize, cols: usize) -> DMatrix<f32> {
             *out.index_mut((y, x)) = (x + y) as f32 / 4.0;
         }
     }
-    // dbg!(
-    //     out.get((0, 0)),
-    //     out.get((0, cols - 1)),
-    //     out.get((rows - 1, 0)),
-    //     out.get((rows - 1, cols - 1)),
-    //     out.get((rows / 2, cols / 2))
-    // );
     out
 }
 
@@ -113,12 +101,5 @@ pub fn dome(rows: usize, cols: usize) -> DMatrix<f32> {
             *out.index_mut((y, x)) = elev;
         }
     }
-    // dbg!(
-    //     out.get((0, 0)),
-    //     out.get((0, cols - 1)),
-    //     out.get((rows - 1, 0)),
-    //     out.get((rows - 1, cols - 1)),
-    //     out.get((rows / 2, cols / 2))
-    // );
     out
 }

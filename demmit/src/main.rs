@@ -1,6 +1,6 @@
 use camino::Utf8PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use demmit::{matrix_to_image, shade, tile_to_matrix};
+use demmit::{matrix_to_image, apply_shading, tile_to_matrix};
 use image::imageops::{resize, FilterType};
 use nasadem::Tile;
 
@@ -81,7 +81,7 @@ fn render(
     );
 
     let mat = tile_to_matrix(&tile);
-    let shaded = shade(azimuth.to_radians(), elevation.to_radians(), &mat);
+    let shaded = apply_shading(azimuth.to_radians(), elevation.to_radians(), &mat);
 
     match (depth, out.extension()) {
         (None | Some(BitDepth::_8), Some("jpg")) => {
