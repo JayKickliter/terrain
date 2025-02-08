@@ -13,6 +13,9 @@ where
 }
 
 pub fn shade(sun_az_rad: f32, sun_elev_rad: f32, data: &DMatrix<f32>) -> DMatrix<f32> {
+    // Translate from azimuth (clockwise starting at due north) to
+    // conventional math angle (counter clockwise from y=0 and x>0).
+    let sun_angle_rad = -(std::f32::consts::FRAC_PI_2 - sun_az_rad);
     let (rows, cols) = data.shape();
     let mut out = DMatrix::zeros(rows, cols);
     let (rows, cols) = (
@@ -40,7 +43,7 @@ pub fn shade(sun_az_rad: f32, sun_elev_rad: f32, data: &DMatrix<f32>) -> DMatrix
             assert!(slope.is_sign_positive());
             let aspect = f32::atan2(-dzdy, -dzdx);
             let reflection =
-                (aspect - sun_az_rad).cos() * (slope).sin() * (FRAC_PI_2 - sun_elev_rad).sin()
+                (aspect - sun_angle_rad).cos() * (slope).sin() * (FRAC_PI_2 - sun_elev_rad).sin()
                     + slope.cos() * (FRAC_PI_2 - sun_elev_rad).cos();
             assert!(reflection.is_finite());
             assert!(reflection <= 1.0);
