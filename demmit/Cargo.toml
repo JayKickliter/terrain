@@ -3,9 +3,15 @@ edition = "2021"
 name    = "demmit"
 version = "0.0.0"
 
+[lib]
+name = "demmit"
+path = "src/lib.rs"
+
 [dependencies]
-anyhow  = { workspace = true }
-camino  = { workspace = true }
-clap    = { workspace = true }
-image   = { workspace = true }
-nasadem = { path = "../nasadem", features = ["image"] }
+anyhow     = { workspace = true }
+camino     = { workspace = true }
+clap       = { workspace = true }
+image      = { workspace = true }
+nalgebra   = { workspace = true }
+nasadem    = { path = "../nasadem", features = ["image"] }
+num-traits = { workspace = true }

@@ -1,5 +1,7 @@
 use camino::Utf8PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use demmit::{apply_shading, matrix_to_image, tile_to_matrix};
+use image::imageops::{resize, FilterType};
 use nasadem::Tile;
 
 type AnyRes = anyhow::Result<()>;
@@ -19,6 +21,16 @@ enum SubCmd {
 
 #[derive(Clone, Args)]
 struct RenderArgs {
+    #[clap(long, short, default_value_t = 315.0)]
+    azimuth: f32,
+
+    #[clap(long, short, default_value_t = 45.0)]
+    elevation: f32,
+
+    /// Resize output to this this value in both x and y dimensions.
+    #[clap(long, short)]
+    constrain: Option<u32>,
+
     /// Bit depth
     #[clap(long, short)]
     depth: Option<BitDepth>,
@@ -41,7 +53,16 @@ enum BitDepth {
     _16,
 }
 
-fn render(RenderArgs { depth, src, dest }: RenderArgs) -> AnyRes {
+fn render(
+    RenderArgs {
+        azimuth,
+        elevation,
+        constrain,
+        depth,
+        src,
+        dest,
+    }: RenderArgs,
+) -> AnyRes {
     let tile = Tile::load(&src)?;
     let out = dest.map_or_else(
         || {
@@ -59,21 +80,37 @@ fn render(RenderArgs { depth, src, dest }: RenderArgs) -> AnyRes {
         },
     );
 
+    let mat = tile_to_matrix(&tile);
+    let shaded = apply_shading(azimuth.to_radians(), elevation.to_radians(), &mat);
+
     match (depth, out.extension()) {
         (None | Some(BitDepth::_8), Some("jpg")) => {
-            let img = tile.to_image::<u8>();
+            let mut img = matrix_to_image::<u8>(&shaded);
+            if let Some(size) = constrain {
+                img = resize(&img, size, size, FilterType::Lanczos3);
+            }
             img.save(out)?;
         }
         (None | Some(BitDepth::_16), Some("png" | "tif" | "tiff")) => {
-            let img = tile.to_image::<u16>();
+            let mut img = matrix_to_image::<u16>(&shaded);
+            if let Some(size) = constrain {
+                img = resize(&img, size, size, FilterType::Lanczos3);
+            }
             img.save(out)?;
         }
         (Some(BitDepth::_16), _) => {
-            let img = tile.to_image::<u16>();
+            let mut img = matrix_to_image::<u16>(&shaded);
+            if let Some(size) = constrain {
+                img = resize(&img, size, size, FilterType::Lanczos3);
+            }
+
             img.save(out)?;
         }
         (_, _) => {
-            let img = tile.to_image::<u8>();
+            let mut img = matrix_to_image::<u8>(&shaded);
+            if let Some(size) = constrain {
+                img = resize(&img, size, size, FilterType::Lanczos3);
+            }
             img.save(out)?;
         }
     };
