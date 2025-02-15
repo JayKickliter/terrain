@@ -1,8 +1,13 @@
-use image::{ImageBuffer, Luma, Primitive};
+use image::{ImageBuffer, Rgb};
 use nalgebra::{DMatrix, Scalar};
 use nasadem::Tile;
-use num_traits::FromPrimitive;
+// use palette::{convert::FromColorUnclamped, Hsl, Srgb};
+use colors_transform::{Color, Hsl};
 use std::f32::consts::FRAC_PI_2;
+
+mod worldcover;
+
+pub use worldcover::{tile_to_worldcover_matrix, WorldCover};
 
 pub fn tile_to_matrix<T>(tile: &Tile) -> DMatrix<T>
 where
@@ -37,7 +42,7 @@ pub fn apply_shading(sun_az_rad: f32, sun_elev_rad: f32, data: &DMatrix<f32>) ->
             let (aspect, slope) = {
                 let dzdx = get(x + 1, y) - get(x - 1, y);
                 let dzdy = get(x, y + 1) - get(x, y - 1);
-                let slope = (dzdx.powi(2) + dzdy.powi(2)).atan();
+                let slope = ((dzdx.powi(2) + dzdy.powi(2)).sqrt() / 30.0).atan();
                 assert!(slope.is_finite());
                 assert!(slope.is_sign_positive());
                 let aspect = f32::atan2(-dzdy, -dzdx);
@@ -58,34 +63,48 @@ pub fn apply_shading(sun_az_rad: f32, sun_elev_rad: f32, data: &DMatrix<f32>) ->
     out
 }
 
-pub fn matrix_to_image<Pix>(data: &DMatrix<f32>) -> ImageBuffer<Luma<Pix>, Vec<Pix>>
-where
-    Pix: Primitive + FromPrimitive + 'static,
-    f32: From<Pix>,
-{
-    let (rows, cols) = data.shape();
+pub fn matrix_to_wc_image(
+    worldcover_mat: &DMatrix<WorldCover>,
+    slope_mat: &DMatrix<f32>,
+) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
+    let (rows, cols) = slope_mat.shape();
     let (rows, cols) = (
         u16::try_from(rows).expect("unexpected size"),
         u16::try_from(cols).expect("unexpected size"),
     );
 
-    // We scale the floating point [0.0, 1.0] values by this factor to
-    // achieve max dynamic range.
-    let scalar = f32::from(Pix::max_value());
-
     let f = |col, row| {
-        let raw = *data.index((row as usize, col as usize));
+        let slope = *slope_mat.index((row as usize, col as usize));
+        let worldcover = *worldcover_mat.index((row as usize, col as usize));
+        let clamped = slope.max(0.0);
         // Reduce dynamic range a little by attenuating all values and
         // adding a little bit ambient light.
-        let attenuated = raw * 0.8 + 0.2;
-        let bounded = attenuated.max(0.0);
-        assert!(bounded >= 0.0);
-        assert!(bounded <= 1.0);
-        let scaled = bounded * scalar;
-        let truncated = scaled.round();
-        let shade = Pix::from_f32(truncated)
-            .expect("we did not properly scale the floating point value prior to conversion");
-        Luma([shade])
+        let lum = clamped * 0.9 + 0.1;
+        assert!(lum >= 0.0);
+        assert!(lum <= 1.0);
+        let (hue, sat) = match worldcover {
+            WorldCover::Bare => (36, 92),
+            WorldCover::Built => (209, 11),
+            WorldCover::Crop => (28, 80),
+            WorldCover::Frozen => (180, 14),
+            WorldCover::Grass => (42, 46),
+            WorldCover::Mangrove => (203, 51),
+            WorldCover::Moss => (283, 37),
+            WorldCover::Shrub => (54, 45),
+            WorldCover::Tree => (145, 63),
+            WorldCover::Water => (204, 64),
+            WorldCover::Wet => (204, 66),
+        };
+        #[allow(clippy::cast_precision_loss)]
+        let hsl = Hsl::from(hue as f32, sat as f32, lum * 100.0);
+        let rgb = hsl.to_rgb();
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let (r, g, b) = (
+            rgb.get_red() as u8,
+            rgb.get_green() as u8,
+            rgb.get_blue() as u8,
+        );
+        Rgb([r, g, b])
     };
     ImageBuffer::from_fn(u32::from(cols), u32::from(rows), f)
 }

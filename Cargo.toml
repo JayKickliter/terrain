@@ -14,12 +14,15 @@ clap              = { version = "4.4.2", features = ["derive"] }
 criterion         = { version = "0.5", features = ["html_reports"] }
 dashmap           = "5.5.3"
 geo               = "0.26.0"
+h3o               = "0.6"
+hextree           = { version = "0.3.2", features = ["disktree"] }
 image             = "0"
 itertools         = "0.14"
 log               = "0.4.20"
 memmap2           = "0.7.1"
 nalgebra          = { version = "0.33", features = ["rayon"] }
 num-traits        = "0.2"
+palette           = "0.7.6"
 thiserror         = "1.0.48"
 tikv-jemallocator = "0.5"
 

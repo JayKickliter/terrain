@@ -1,6 +1,7 @@
 use camino::Utf8PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use demmit::{apply_shading, matrix_to_image, tile_to_matrix};
+use demmit::{apply_shading, matrix_to_wc_image, tile_to_matrix, tile_to_worldcover_matrix};
+use hextree::disktree::DiskTreeMap;
 use image::imageops::{resize, FilterType};
 use nasadem::Tile;
 
@@ -31,9 +32,8 @@ struct RenderArgs {
     #[clap(long, short)]
     constrain: Option<u32>,
 
-    /// Bit depth
-    #[clap(long, short)]
-    depth: Option<BitDepth>,
+    /// Path to worldcover `h3db`.
+    worldcover: Utf8PathBuf,
 
     /// Source NASADEM/SRTM hgt file.
     src: Utf8PathBuf,
@@ -58,7 +58,7 @@ fn render(
         azimuth,
         elevation,
         constrain,
-        depth,
+        worldcover,
         src,
         dest,
     }: RenderArgs,
@@ -81,39 +81,14 @@ fn render(
     );
 
     let mat = tile_to_matrix(&tile);
-    let shaded = apply_shading(azimuth.to_radians(), elevation.to_radians(), &mat);
-
-    match (depth, out.extension()) {
-        (None | Some(BitDepth::_8), Some("jpg")) => {
-            let mut img = matrix_to_image::<u8>(&shaded);
-            if let Some(size) = constrain {
-                img = resize(&img, size, size, FilterType::Lanczos3);
-            }
-            img.save(out)?;
-        }
-        (None | Some(BitDepth::_16), Some("png" | "tif" | "tiff")) => {
-            let mut img = matrix_to_image::<u16>(&shaded);
-            if let Some(size) = constrain {
-                img = resize(&img, size, size, FilterType::Lanczos3);
-            }
-            img.save(out)?;
-        }
-        (Some(BitDepth::_16), _) => {
-            let mut img = matrix_to_image::<u16>(&shaded);
-            if let Some(size) = constrain {
-                img = resize(&img, size, size, FilterType::Lanczos3);
-            }
-
-            img.save(out)?;
-        }
-        (_, _) => {
-            let mut img = matrix_to_image::<u8>(&shaded);
-            if let Some(size) = constrain {
-                img = resize(&img, size, size, FilterType::Lanczos3);
-            }
-            img.save(out)?;
-        }
-    };
+    let shaded_mat = apply_shading(azimuth.to_radians(), elevation.to_radians(), &mat);
+    let h3db = DiskTreeMap::open(worldcover).unwrap();
+    let worldcover_mat = tile_to_worldcover_matrix(&h3db, &tile);
+    let mut img = matrix_to_wc_image(&worldcover_mat, &shaded_mat);
+    if let Some(size) = constrain {
+        img = resize(&img, size, size, FilterType::Lanczos3);
+    }
+    img.save(out)?;
 
     Ok(())
 }

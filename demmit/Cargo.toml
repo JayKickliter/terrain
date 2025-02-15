@@ -11,7 +11,11 @@ path = "src/lib.rs"
 anyhow     = { workspace = true }
 camino     = { workspace = true }
 clap       = { workspace = true }
+h3o        = { workspace = true }
+hextree    = { workspace = true }
 image      = { workspace = true }
 nalgebra   = { workspace = true }
 nasadem    = { path = "../nasadem", features = ["image"] }
 num-traits = { workspace = true }
+# palette    = { workspace = true }
+colors-transform = "*"
