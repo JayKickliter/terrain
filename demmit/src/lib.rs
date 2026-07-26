@@ -1,13 +1,21 @@
-use image::{ImageBuffer, Rgb};
+use colors_transform::{Color, Hsl};
+use image::{ImageBuffer, Luma, Rgb};
 use nalgebra::{DMatrix, Scalar};
 use nasadem::Tile;
-// use palette::{convert::FromColorUnclamped, Hsl, Srgb};
-use colors_transform::{Color, Hsl};
 use std::f32::consts::FRAC_PI_2;
 
 mod worldcover;
 
 pub use worldcover::{tile_to_worldcover_matrix, WorldCover};
+
+/// Approximate ground distance of one arcsecond at the equator, in meters.
+pub const METERS_PER_ARCSEC: f32 = 30.87;
+
+/// Fraction of illumination from directional light.
+const DIRECT_LIGHT: f32 = 0.9;
+
+/// Fraction of illumination from ambient light.
+const AMBIENT_LIGHT: f32 = 0.1;
 
 pub fn tile_to_matrix<T>(tile: &Tile) -> DMatrix<T>
 where
@@ -17,10 +25,26 @@ where
     DMatrix::from_row_iterator(h, w, tile.iter().map(|sample| T::from(sample.elevation())))
 }
 
-pub fn apply_shading(sun_az_rad: f32, sun_elev_rad: f32, data: &DMatrix<f32>) -> DMatrix<f32> {
-    // Translate from azimuth (clockwise starting at due north) to
-    // conventional math angle (counter clockwise from y=0 and x>0).
-    let sun_angle_rad = -(std::f32::consts::FRAC_PI_2 - sun_az_rad);
+/// Computes hillshade reflectance per cell using a Sobel 3x3 kernel.
+///
+/// `cell_size`: ground distance between adjacent samples in meters.
+/// Returns values in roughly [-1.0, 1.0].
+///
+/// # Panics
+///
+/// Panics if either dimension exceeds `u16::MAX`.
+pub fn apply_shading(
+    sun_az_rad: f32,
+    sun_elev_rad: f32,
+    cell_size: f32,
+    data: &DMatrix<f32>,
+) -> DMatrix<f32> {
+    // Compass azimuth (CW from north) to math angle (CCW from east)
+    let sun_angle_rad = FRAC_PI_2 - sun_az_rad;
+    let zenith_rad = FRAC_PI_2 - sun_elev_rad;
+    let cos_z = zenith_rad.cos();
+    let sin_z = zenith_rad.sin();
+
     let (rows, cols) = data.shape();
     let mut out = DMatrix::zeros(rows, cols);
     let (rows, cols) = (
@@ -31,29 +55,35 @@ pub fn apply_shading(sun_az_rad: f32, sun_elev_rad: f32, data: &DMatrix<f32>) ->
     let get = |x: i32, y: i32| {
         let x = x.clamp(0, i32::from(cols - 1));
         let y = y.clamp(0, i32::from(rows - 1));
-        data.index((
+        *data.index((
             usize::try_from(y).expect("unexpected size"),
             usize::try_from(x).expect("unexpected size"),
         ))
     };
 
+    // Sobel kernel absolute weight sum (1+2+1 per side)
+    let sobel_norm = 8.0 * cell_size;
+
     for x in 0..i32::from(cols) {
         for y in 0..i32::from(rows) {
-            let (aspect, slope) = {
-                let dzdx = get(x + 1, y) - get(x - 1, y);
-                let dzdy = get(x, y + 1) - get(x, y - 1);
-                let slope = ((dzdx.powi(2) + dzdy.powi(2)).sqrt() / 30.0).atan();
-                assert!(slope.is_finite());
-                assert!(slope.is_sign_positive());
-                let aspect = f32::atan2(-dzdy, -dzdx);
-                assert!(slope.is_finite());
-                (aspect, slope)
-            };
+            let nw = get(x - 1, y - 1);
+            let n  = get(x,     y - 1);
+            let ne = get(x + 1, y - 1);
+            let w  = get(x - 1, y);
+            let e  = get(x + 1, y);
+            let sw = get(x - 1, y + 1);
+            let s  = get(x,     y + 1);
+            let se = get(x + 1, y + 1);
+
+            let dzdx = ((ne + 2.0 * e + se) - (nw + 2.0 * w + sw)) / sobel_norm;
+            let dzdy = ((sw + 2.0 * s + se) - (nw + 2.0 * n + ne)) / sobel_norm;
+
+            let slope = (dzdx.powi(2) + dzdy.powi(2)).sqrt().atan();
+            let aspect = f32::atan2(dzdy, -dzdx);
+
             let reflection =
-                (aspect - sun_angle_rad).cos() * (slope).sin() * (FRAC_PI_2 - sun_elev_rad).sin()
-                    + slope.cos() * (FRAC_PI_2 - sun_elev_rad).cos();
-            assert!(reflection.is_finite());
-            assert!(reflection <= 1.0);
+                cos_z * slope.cos() + sin_z * slope.sin() * (sun_angle_rad - aspect).cos();
+
             #[allow(clippy::cast_sign_loss)]
             {
                 *out.index_mut((y as usize, x as usize)) = reflection;
@@ -76,12 +106,7 @@ pub fn matrix_to_wc_image(
     let f = |col, row| {
         let slope = *slope_mat.index((row as usize, col as usize));
         let worldcover = *worldcover_mat.index((row as usize, col as usize));
-        let clamped = slope.max(0.0);
-        // Reduce dynamic range a little by attenuating all values and
-        // adding a little bit ambient light.
-        let lum = clamped * 0.9 + 0.1;
-        assert!(lum >= 0.0);
-        assert!(lum <= 1.0);
+        let lum = (slope.max(0.0) * DIRECT_LIGHT + AMBIENT_LIGHT).clamp(0.0, 1.0);
         let (hue, sat) = match worldcover {
             WorldCover::Bare => (36, 92),
             WorldCover::Built => (209, 11),
@@ -107,6 +132,25 @@ pub fn matrix_to_wc_image(
         Rgb([r, g, b])
     };
     ImageBuffer::from_fn(u32::from(cols), u32::from(rows), f)
+}
+
+/// Renders a shading matrix as a grayscale image.
+///
+/// # Panics
+///
+/// Panics if either dimension exceeds `u16::MAX`.
+pub fn matrix_to_grayscale(shading_mat: &DMatrix<f32>) -> ImageBuffer<Luma<u8>, Vec<u8>> {
+    let (rows, cols) = shading_mat.shape();
+    let (rows, cols) = (
+        u16::try_from(rows).expect("unexpected size"),
+        u16::try_from(cols).expect("unexpected size"),
+    );
+    ImageBuffer::from_fn(u32::from(cols), u32::from(rows), |col, row| {
+        let val = *shading_mat.index((row as usize, col as usize));
+        let lum = (val.max(0.0) * DIRECT_LIGHT + AMBIENT_LIGHT).clamp(0.0, 1.0);
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        Luma([(lum * 255.0) as u8])
+    })
 }
 
 #[allow(clippy::cast_precision_loss)]
