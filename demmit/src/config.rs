@@ -95,6 +95,7 @@ impl Config {
         let Some(path) = Self::path() else {
             return Self::default();
         };
+        println!("Loading config from {path}");
         std::fs::read_to_string(&path)
             .ok()
             .and_then(|s| toml::from_str(&s).ok())

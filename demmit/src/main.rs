@@ -1,3 +1,11 @@
+mod app;
+mod config;
+mod sun;
+mod tiles;
+mod trace;
+mod viewport;
+mod worker;
+
 use camino::Utf8PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use demmit::{
@@ -7,14 +15,12 @@ use demmit::{
 use hextree::disktree::DiskTreeMap;
 use image::imageops::{resize, FilterType};
 use nasadem::Tile;
+#[cfg(not(target_env = "msvc"))]
+use tikv_jemallocator::Jemalloc;
 
-mod app;
-mod config;
-mod sun;
-mod tiles;
-mod trace;
-mod viewport;
-mod worker;
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
 
 type AnyRes = anyhow::Result<()>;
 
