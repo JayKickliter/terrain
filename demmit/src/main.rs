@@ -11,8 +11,8 @@ use nasadem::Tile;
 mod app;
 mod config;
 mod sun;
-mod telemetry;
 mod tiles;
+mod trace;
 mod viewport;
 mod worker;
 
@@ -155,7 +155,7 @@ fn view(args: ViewArgs) -> AnyRes {
     if let Some(lon) = args.lon {
         cfg.center_lon = lon;
     }
-    let _log_guard = telemetry::init();
+    trace::to_stdout();
     app::run(cfg)
 }
 
