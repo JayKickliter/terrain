@@ -129,6 +129,7 @@ struct App {
     inflight: HashMap<TileKey, Sig>,
     missing: HashSet<TileKey>,
     sun_drag: bool,
+    zoom_box: Option<(egui::Pos2, egui::Pos2)>,
     last_saved: Config,
     last_save_time: f64,
     path_mode: bool,
@@ -175,6 +176,7 @@ impl App {
             inflight: HashMap::new(),
             missing: HashSet::new(),
             sun_drag: false,
+            zoom_box: None,
             last_saved,
             last_save_time: 0.0,
             path_mode: false,
@@ -425,8 +427,7 @@ impl App {
                     .on_hover_text("open current view in Google Maps")
                     .clicked()
                 {
-                    let url =
-                        self.gmaps_url(self.viewport.center_lat, self.viewport.center_lon);
+                    let url = self.gmaps_url(self.viewport.center_lat, self.viewport.center_lon);
                     ui.ctx().open_url(egui::OpenUrl::new_tab(url));
                 }
             });
@@ -481,14 +482,21 @@ impl App {
         }
 
         if response.drag_started() {
-            self.sun_drag = response
-                .interact_pointer_pos()
-                .is_some_and(|p| dial.contains(p, DIAL_GRAB_SLOP));
+            let start = response.interact_pointer_pos();
+            self.sun_drag = start.is_some_and(|p| dial.contains(p, DIAL_GRAB_SLOP));
+            let shift = ui.input(|i| i.modifiers.shift);
+            if !self.sun_drag && shift {
+                self.zoom_box = start.map(|p| (p, p));
+            }
         }
         if response.dragged() {
             if self.sun_drag {
                 if let Some(p) = response.interact_pointer_pos() {
                     self.sun = dial.sun_from_pos(p);
+                }
+            } else if let Some(bx) = self.zoom_box.as_mut() {
+                if let Some(p) = response.interact_pointer_pos() {
+                    bx.1 = p;
                 }
             } else {
                 let d = response.drag_delta();
@@ -496,10 +504,13 @@ impl App {
             }
         }
         if response.drag_stopped() {
+            if let Some((a, b)) = self.zoom_box.take() {
+                self.viewport.zoom_to_box(proj, a, b);
+            }
             self.sun_drag = false;
         }
 
-        if !self.sun_drag {
+        if !self.sun_drag && self.zoom_box.is_none() {
             let anchor = response.hover_pos().unwrap_or_else(|| proj.center());
             let (scroll, zoom_delta) = ui.input(|i| (i.smooth_scroll_delta.y, i.zoom_delta()));
             if scroll != 0.0 {
@@ -663,6 +674,22 @@ impl App {
             ),
             egui::FontId::proportional(11.0),
             egui::Color32::LIGHT_GRAY,
+        );
+    }
+
+    /// Draws the in-progress shift-drag zoom rectangle.
+    fn draw_zoom_box(&self, ui: &egui::Ui, clip: egui::Rect) {
+        let Some((a, b)) = self.zoom_box else {
+            return;
+        };
+        let painter = ui.painter_at(clip);
+        let rect = egui::Rect::from_two_pos(a, b);
+        painter.rect_filled(rect, 0.0, egui::Color32::from_white_alpha(24));
+        painter.rect_stroke(
+            rect,
+            0.0,
+            egui::Stroke::new(1.5, egui::Color32::WHITE),
+            egui::StrokeKind::Inside,
         );
     }
 
@@ -861,6 +888,7 @@ impl eframe::App for App {
             self.draw_path(ui, area, proj);
             self.draw_sun(ui, area);
             self.draw_readout(ui, area, proj);
+            self.draw_zoom_box(ui, area);
         });
         self.maybe_persist(ui.ctx());
     }
