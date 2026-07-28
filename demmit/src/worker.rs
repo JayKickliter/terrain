@@ -7,7 +7,7 @@
 use crate::{config::Coloring, tiles::TileKey};
 use camino::Utf8PathBuf;
 use crossbeam_channel::{unbounded, Receiver, Sender};
-use demmit::{tile_to_worldcover_downsampled, Gradients, Sun, WorldCover};
+use demmit::{tile_to_worldcover_downsampled, Gradients, Palette, Sun, WorldCover};
 use dropclock::DropClock;
 use eframe::egui;
 use hextree::disktree::DiskTreeMap;
@@ -37,6 +37,8 @@ pub struct ShadeParams {
     pub tile_px: usize,
     /// Coloring mode.
     pub coloring: Coloring,
+    /// Per-class land-cover tint colors.
+    pub palette: Palette,
 }
 
 /// Compact identity of a shading result, used to skip redundant work.
@@ -47,6 +49,7 @@ pub struct Sig {
     z: u32,
     tile_px: usize,
     coloring: u8,
+    palette: Palette,
 }
 
 impl Sig {
@@ -61,6 +64,7 @@ impl Sig {
                 Coloring::Grayscale => 0,
                 Coloring::Worldcover => 1,
             },
+            palette: params.palette,
         }
     }
 }
@@ -321,7 +325,13 @@ fn shade_and_send(
         let _timer = DropClock::new(|t| tracing::trace!(elapsed = ?t.elapsed(), "reshade"));
         if use_cover {
             let (_, classes) = caches.cover.get(&key).expect("cover present");
-            g.shade_worldcover(classes, params.sun, params.z_factor, &mut rgba);
+            g.shade_worldcover(
+                classes,
+                &params.palette,
+                params.sun,
+                params.z_factor,
+                &mut rgba,
+            );
         } else {
             g.shade_grayscale(params.sun, params.z_factor, &mut rgba);
         }
@@ -342,7 +352,7 @@ mod tests {
     use super::{spawn, ShadeParams, Sig, TileUpdate};
     use crate::{config::Coloring, tiles::TileKey};
     use camino::Utf8PathBuf;
-    use demmit::Sun;
+    use demmit::{Palette, Sun};
     use eframe::egui;
     use std::{collections::HashMap, time::Duration};
 
@@ -362,6 +372,7 @@ mod tests {
             z_factor: 1.0,
             tile_px,
             coloring: Coloring::Grayscale,
+            palette: Palette::default(),
         }
     }
 

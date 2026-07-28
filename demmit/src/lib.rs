@@ -1,15 +1,16 @@
-use colors_transform::{Color, Hsl};
 use image::{ImageBuffer, Luma, Rgb};
 use nalgebra::{DMatrix, Scalar};
 use nasadem::Tile;
 use std::f32::consts::FRAC_PI_2;
 
+mod color;
 mod shade;
 mod worldcover;
 
+pub use color::Rgb8;
 pub use shade::{Gradients, Sun};
 pub use worldcover::{
-    tile_to_worldcover_downsampled, tile_to_worldcover_matrix, worldcover_at, WorldCover,
+    tile_to_worldcover_downsampled, tile_to_worldcover_matrix, worldcover_at, Palette, WorldCover,
 };
 
 /// Approximate ground distance of one arcsecond at the equator, in meters.
@@ -97,43 +98,29 @@ pub fn apply_shading(
     out
 }
 
+/// Renders a shading matrix tinted by per-cell land cover class.
+///
+/// # Panics
+///
+/// Panics if either dimension exceeds `u16::MAX`.
 pub fn matrix_to_wc_image(
     worldcover_mat: &DMatrix<WorldCover>,
     slope_mat: &DMatrix<f32>,
+    palette: &Palette,
 ) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
     let (rows, cols) = slope_mat.shape();
     let (rows, cols) = (
         u16::try_from(rows).expect("unexpected size"),
         u16::try_from(cols).expect("unexpected size"),
     );
+    let hue_sat = palette.hue_sat_table();
 
     let f = |col, row| {
         let slope = *slope_mat.index((row as usize, col as usize));
         let worldcover = *worldcover_mat.index((row as usize, col as usize));
         let lum = (slope.max(0.0) * DIRECT_LIGHT + AMBIENT_LIGHT).clamp(0.0, 1.0);
-        let (hue, sat) = match worldcover {
-            WorldCover::Bare => (36, 92),
-            WorldCover::Built => (209, 11),
-            WorldCover::Crop => (28, 80),
-            WorldCover::Frozen => (180, 14),
-            WorldCover::Grass => (42, 46),
-            WorldCover::Mangrove => (203, 51),
-            WorldCover::Moss => (283, 37),
-            WorldCover::Shrub => (54, 45),
-            WorldCover::Tree => (145, 63),
-            WorldCover::Water => (204, 64),
-            WorldCover::Wet => (204, 66),
-        };
-        #[allow(clippy::cast_precision_loss)]
-        let hsl = Hsl::from(hue as f32, sat as f32, lum * 100.0);
-        let rgb = hsl.to_rgb();
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let (r, g, b) = (
-            rgb.get_red() as u8,
-            rgb.get_green() as u8,
-            rgb.get_blue() as u8,
-        );
-        Rgb([r, g, b])
+        let (hue, sat) = hue_sat[worldcover.index()];
+        Rgb(color::hsl_to_rgb(hue, sat, lum * 100.0))
     };
     ImageBuffer::from_fn(u32::from(cols), u32::from(rows), f)
 }

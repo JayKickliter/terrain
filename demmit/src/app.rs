@@ -9,7 +9,7 @@ use crate::{
 };
 use anyhow::anyhow;
 use camino::{Utf8Path, Utf8PathBuf};
-use demmit::{worldcover_at, Sun, WorldCover};
+use demmit::{worldcover_at, Palette, Rgb8, Sun, WorldCover};
 use eframe::egui;
 use egui_plot::{Legend, Line, Plot, PlotPoints};
 use hextree::disktree::DiskTreeMap;
@@ -43,6 +43,17 @@ const DEFAULT_SUN_AZ_DEG: f32 = 315.0;
 
 /// Default sun elevation in degrees.
 const DEFAULT_SUN_ELEV_DEG: f32 = 45.0;
+
+/// Width of a `#rrggbb` entry field in points.
+const HEX_FIELD_WIDTH: f32 = 72.0;
+
+/// Hex edit buffers for every class, in [`WorldCover::index`] order.
+fn hex_inputs(palette: &Palette) -> Vec<String> {
+    WorldCover::ALL
+        .iter()
+        .map(|&class| palette.get(class).to_string())
+        .collect()
+}
 
 /// A tile directory paired with its detected resolution.
 struct DirRes {
@@ -121,6 +132,10 @@ struct App {
     sun: Sun,
     z_factor: f32,
     coloring: Coloring,
+    cover_colors: Palette,
+    show_cover_colors: bool,
+    /// One `#rrggbb` edit buffer per class, indexed by [`WorldCover::index`].
+    cover_hex: Vec<String>,
     worldcover_h3db: Option<Utf8PathBuf>,
     window: Window,
     coords_input: String,
@@ -168,6 +183,9 @@ impl App {
             },
             z_factor: cfg.z_factor,
             coloring: cfg.coloring,
+            cover_colors: cfg.cover_colors,
+            show_cover_colors: false,
+            cover_hex: hex_inputs(&cfg.cover_colors),
             worldcover_h3db: cfg.worldcover_h3db,
             window: cfg.window,
             coords_input: format!("{:.4}, {:.4}", cfg.center_lat, cfg.center_lon),
@@ -319,6 +337,7 @@ impl App {
             coloring: self.coloring,
             worldcover_h3db: self.worldcover_h3db.clone(),
             dirs: self.dirs.iter().map(|d| d.path.clone()).collect(),
+            cover_colors: self.cover_colors,
             window: self.window,
         }
     }
@@ -405,6 +424,9 @@ impl App {
                     self.persist();
                 }
             }
+            ui.toggle_value(&mut self.show_cover_colors, "🎨")
+                .on_hover_text("edit land-cover class colors");
+
             if ui.button("cover…").clicked() {
                 if let Some(file) = rfd::FileDialog::new()
                     .pick_file()
@@ -432,6 +454,70 @@ impl App {
                 }
             });
         });
+    }
+
+    /// Draws the land-cover color editor window.
+    ///
+    /// Both the swatch picker and the hex field write straight into the
+    /// palette; the periodic config save persists it from there.
+    fn draw_cover_colors(&mut self, ctx: &egui::Context) {
+        let mut open = self.show_cover_colors;
+        egui::Window::new("land cover colors")
+            .open(&mut open)
+            .resizable(false)
+            .show(ctx, |ui| {
+                egui::Grid::new("cover_colors_grid")
+                    .num_columns(3)
+                    .spacing([8.0, 4.0])
+                    .show(ui, |ui| {
+                        for class in WorldCover::ALL {
+                            self.cover_color_row(ui, class);
+                            ui.end_row();
+                        }
+                    });
+                ui.separator();
+                if ui.button("reset to defaults").clicked() {
+                    self.cover_colors = Palette::default();
+                    self.cover_hex = hex_inputs(&self.cover_colors);
+                }
+            });
+        self.show_cover_colors = open;
+    }
+
+    /// One editor row: class name, swatch picker, and hex entry.
+    fn cover_color_row(&mut self, ui: &mut egui::Ui, class: WorldCover) {
+        let slot = class.index();
+        ui.label(class.to_string());
+
+        let current = self.cover_colors.get(class);
+        let mut picked = egui::Color32::from_rgb(current.r, current.g, current.b);
+        if egui::widgets::color_picker::color_edit_button_srgba(
+            ui,
+            &mut picked,
+            egui::widgets::color_picker::Alpha::Opaque,
+        )
+        .changed()
+        {
+            let color = Rgb8::new(picked.r(), picked.g(), picked.b());
+            self.cover_colors.set(class, color);
+            self.cover_hex[slot] = color.to_string();
+        }
+
+        let resp = ui.add(
+            egui::TextEdit::singleline(&mut self.cover_hex[slot])
+                .desired_width(HEX_FIELD_WIDTH)
+                .font(egui::TextStyle::Monospace),
+        );
+        if resp.changed() {
+            if let Some(color) = Rgb8::parse_hex(&self.cover_hex[slot]) {
+                self.cover_colors.set(class, color);
+            }
+        }
+        // Snap the buffer back whenever it is not being typed into, so
+        // half-typed or invalid text never lingers.
+        if !resp.has_focus() {
+            self.cover_hex[slot] = self.cover_colors.get(class).to_string();
+        }
     }
 
     fn handle_input(
@@ -531,6 +617,7 @@ impl App {
             z_factor: self.z_factor,
             tile_px,
             coloring: self.coloring,
+            palette: self.cover_colors,
         };
         let want_sig = Sig::new(params);
 
@@ -890,6 +977,7 @@ impl eframe::App for App {
             self.draw_readout(ui, area, proj);
             self.draw_zoom_box(ui, area);
         });
+        self.draw_cover_colors(ui.ctx());
         self.maybe_persist(ui.ctx());
     }
 }

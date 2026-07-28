@@ -5,7 +5,9 @@
 //! z-factor changes reshade with only multiplies and one sqrt per
 //! pixel (no per-pixel trig), which vectorizes well.
 
-use crate::{WorldCover, AMBIENT_LIGHT, DIRECT_LIGHT, METERS_PER_ARCSEC};
+use crate::{
+    color::hsl_to_rgb, Palette, WorldCover, AMBIENT_LIGHT, DIRECT_LIGHT, METERS_PER_ARCSEC,
+};
 use multiversion::multiversion;
 use nasadem::Tile;
 use std::f32::consts::FRAC_PI_2;
@@ -148,13 +150,21 @@ impl Gradients {
     /// # Panics
     ///
     /// Panics if `cover.len() != self.len()` or `out.len() != self.len() * 4`.
-    pub fn shade_worldcover(&self, cover: &[WorldCover], sun: Sun, z_factor: f32, out: &mut [u8]) {
+    pub fn shade_worldcover(
+        &self,
+        cover: &[WorldCover],
+        palette: &Palette,
+        sun: Sun,
+        z_factor: f32,
+        out: &mut [u8],
+    ) {
         assert_eq!(cover.len(), self.len(), "cover buffer size mismatch");
         assert_eq!(out.len(), self.len() * 4, "output buffer size mismatch");
         let [lx, ly, lz] = sun.light();
+        let hue_sat = palette.hue_sat_table();
         for (i, px) in out.chunks_exact_mut(4).enumerate() {
             let lum = reflectance(self.dzdx[i], self.dzdy[i], lx, ly, lz, z_factor);
-            let (hue, sat) = cover[i].hue_sat();
+            let (hue, sat) = hue_sat[cover[i].index()];
             let [r, g, b] = hsl_to_rgb(hue, sat, lum * 100.0);
             px.copy_from_slice(&[r, g, b, 255]);
         }
@@ -180,51 +190,11 @@ fn shade_grayscale_kernel(dzdx: &[f32], dzdy: &[f32], light: [f32; 3], z: f32, o
     }
 }
 
-/// Converts HSL (`h` deg, `s`/`l` percent) to 8-bit RGB.
-fn hsl_to_rgb(h: f32, s: f32, l: f32) -> [u8; 3] {
-    let h = h / 360.0;
-    let s = s / 100.0;
-    let l = l / 100.0;
-    if s == 0.0 {
-        let v = (l * 255.0) as u8;
-        return [v, v, v];
-    }
-    let q = if l < 0.5 {
-        l * (1.0 + s)
-    } else {
-        l + s - l * s
-    };
-    let p = 2.0 * l - q;
-    let r = hue_to_channel(p, q, h + 1.0 / 3.0);
-    let g = hue_to_channel(p, q, h);
-    let b = hue_to_channel(p, q, h - 1.0 / 3.0);
-    [(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8]
-}
-
-#[inline]
-fn hue_to_channel(p: f32, q: f32, mut t: f32) -> f32 {
-    if t < 0.0 {
-        t += 1.0;
-    }
-    if t > 1.0 {
-        t -= 1.0;
-    }
-    if t < 1.0 / 6.0 {
-        p + (q - p) * 6.0 * t
-    } else if t < 1.0 / 2.0 {
-        q
-    } else if t < 2.0 / 3.0 {
-        p + (q - p) * (2.0 / 3.0 - t) * 6.0
-    } else {
-        p
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{Gradients, Sun};
     use crate::{
-        apply_shading, matrix_to_grayscale, tile_to_matrix, WorldCover, METERS_PER_ARCSEC,
+        apply_shading, matrix_to_grayscale, tile_to_matrix, Palette, WorldCover, METERS_PER_ARCSEC,
     };
     use nasadem::Tile;
 
@@ -238,7 +208,7 @@ mod tests {
             az_rad: 315.0_f32.to_radians(),
             elev_rad: 45.0_f32.to_radians(),
         };
-        grad.shade_worldcover(&cover, sun, 1.0, &mut rgba);
+        grad.shade_worldcover(&cover, &Palette::default(), sun, 1.0, &mut rgba);
         assert!(rgba.chunks_exact(4).all(|px| px[3] == 255));
         assert!(rgba
             .chunks_exact(4)

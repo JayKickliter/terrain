@@ -129,7 +129,8 @@ fn render(
         Some(wc_path) => {
             let h3db = DiskTreeMap::open(wc_path)?;
             let worldcover_mat = tile_to_worldcover_matrix(&h3db, &tile);
-            let mut img = matrix_to_wc_image(&worldcover_mat, &shaded_mat);
+            let palette = config::Config::load().cover_colors;
+            let mut img = matrix_to_wc_image(&worldcover_mat, &shaded_mat, &palette);
             if let Some(size) = constrain {
                 img = resize(&img, size, size, FilterType::Lanczos3);
             }

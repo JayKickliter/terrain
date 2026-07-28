@@ -11,7 +11,6 @@ path = "src/lib.rs"
 anyhow             = { workspace = true }
 camino             = { workspace = true, features = ["serde1"] }
 clap               = { workspace = true }
-colors-transform   = "*"
 crossbeam-channel  = "0.5.16"
 directories        = "6.0.0"
 dropclock          = "0.1.0"

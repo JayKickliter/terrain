@@ -1,8 +1,12 @@
+//! ESA WorldCover land-cover classes and the colors used to tint them.
+
+use crate::color::Rgb8;
 use h3o::{LatLng, Resolution};
 use hextree::disktree::DiskTreeMap;
 use hextree::Cell;
 use nalgebra::DMatrix;
 use nasadem::{Sample, Tile};
+use serde::{Deserialize, Serialize};
 
 pub fn tile_to_worldcover_matrix(h3db: &DiskTreeMap, tile: &Tile) -> DMatrix<WorldCover> {
     let (w, h) = tile.dimensions();
@@ -78,20 +82,37 @@ impl std::fmt::Display for WorldCover {
 }
 
 impl WorldCover {
-    /// HSL hue (degrees) and saturation (percent) used to tint this class.
-    pub fn hue_sat(self) -> (f32, f32) {
+    /// Every class, in [`Palette`] index order.
+    pub const ALL: [WorldCover; 11] = [
+        WorldCover::Bare,
+        WorldCover::Built,
+        WorldCover::Crop,
+        WorldCover::Frozen,
+        WorldCover::Grass,
+        WorldCover::Mangrove,
+        WorldCover::Moss,
+        WorldCover::Shrub,
+        WorldCover::Tree,
+        WorldCover::Water,
+        WorldCover::Wet,
+    ];
+
+    /// Position of this class in [`WorldCover::ALL`].
+    #[inline]
+    #[must_use]
+    pub const fn index(self) -> usize {
         match self {
-            WorldCover::Bare => (36.0, 92.0),
-            WorldCover::Built => (209.0, 11.0),
-            WorldCover::Crop => (28.0, 80.0),
-            WorldCover::Frozen => (180.0, 14.0),
-            WorldCover::Grass => (42.0, 46.0),
-            WorldCover::Mangrove => (203.0, 51.0),
-            WorldCover::Moss => (283.0, 37.0),
-            WorldCover::Shrub => (54.0, 45.0),
-            WorldCover::Tree => (145.0, 63.0),
-            WorldCover::Water => (204.0, 64.0),
-            WorldCover::Wet => (204.0, 66.0),
+            WorldCover::Bare => 0,
+            WorldCover::Built => 1,
+            WorldCover::Crop => 2,
+            WorldCover::Frozen => 3,
+            WorldCover::Grass => 4,
+            WorldCover::Mangrove => 5,
+            WorldCover::Moss => 6,
+            WorldCover::Shrub => 7,
+            WorldCover::Tree => 8,
+            WorldCover::Water => 9,
+            WorldCover::Wet => 10,
         }
     }
 
@@ -109,6 +130,103 @@ impl WorldCover {
             WorldCover::Wet => "HerbaceousWetland",
             WorldCover::Mangrove => "Mangroves",
             WorldCover::Moss => "MossAndLichen",
+        }
+    }
+}
+
+/// Per-class tint colors for land-cover shading.
+///
+/// Only the hue and saturation of each color reach the render: the
+/// hillshade supplies lightness per pixel.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(from = "PaletteToml", into = "PaletteToml")]
+pub struct Palette([Rgb8; WorldCover::ALL.len()]);
+
+impl Palette {
+    /// Tint color for a class.
+    #[inline]
+    #[must_use]
+    pub const fn get(&self, class: WorldCover) -> Rgb8 {
+        self.0[class.index()]
+    }
+
+    /// Replaces the tint color for a class.
+    pub fn set(&mut self, class: WorldCover, color: Rgb8) {
+        self.0[class.index()] = color;
+    }
+
+    /// Hue (degrees) and saturation (percent) per class, indexed by [`WorldCover::index`].
+    #[must_use]
+    pub fn hue_sat_table(&self) -> [(f32, f32); WorldCover::ALL.len()] {
+        self.0.map(Rgb8::hue_sat)
+    }
+}
+
+impl Default for Palette {
+    fn default() -> Self {
+        Self::from(PaletteToml::default())
+    }
+}
+
+/// Named-field mirror of [`Palette`], giving `demmit.toml` readable keys.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(default)]
+struct PaletteToml {
+    bare: Rgb8,
+    built: Rgb8,
+    crop: Rgb8,
+    frozen: Rgb8,
+    grass: Rgb8,
+    mangrove: Rgb8,
+    moss: Rgb8,
+    shrub: Rgb8,
+    tree: Rgb8,
+    water: Rgb8,
+    wet: Rgb8,
+}
+
+impl Default for PaletteToml {
+    fn default() -> Self {
+        let hsl = |h: f32, s: f32| Rgb8::from_hsl(h, s, 50.0);
+        Self {
+            bare: hsl(36.0, 92.0),
+            built: hsl(209.0, 11.0),
+            crop: hsl(28.0, 80.0),
+            frozen: hsl(180.0, 14.0),
+            grass: hsl(42.0, 46.0),
+            mangrove: hsl(203.0, 51.0),
+            moss: hsl(283.0, 37.0),
+            shrub: hsl(54.0, 45.0),
+            tree: hsl(145.0, 63.0),
+            water: hsl(204.0, 64.0),
+            wet: hsl(204.0, 66.0),
+        }
+    }
+}
+
+impl From<PaletteToml> for Palette {
+    fn from(t: PaletteToml) -> Self {
+        Self([
+            t.bare, t.built, t.crop, t.frozen, t.grass, t.mangrove, t.moss, t.shrub, t.tree,
+            t.water, t.wet,
+        ])
+    }
+}
+
+impl From<Palette> for PaletteToml {
+    fn from(p: Palette) -> Self {
+        Self {
+            bare: p.get(WorldCover::Bare),
+            built: p.get(WorldCover::Built),
+            crop: p.get(WorldCover::Crop),
+            frozen: p.get(WorldCover::Frozen),
+            grass: p.get(WorldCover::Grass),
+            mangrove: p.get(WorldCover::Mangrove),
+            moss: p.get(WorldCover::Moss),
+            shrub: p.get(WorldCover::Shrub),
+            tree: p.get(WorldCover::Tree),
+            water: p.get(WorldCover::Water),
+            wet: p.get(WorldCover::Wet),
         }
     }
 }
@@ -131,5 +249,65 @@ impl TryFrom<u8> for WorldCover {
             _ => return Err(other),
         };
         Ok(val)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Palette, WorldCover};
+    use crate::color::Rgb8;
+
+    #[test]
+    fn all_indices_are_unique_and_dense() {
+        let mut seen = [false; WorldCover::ALL.len()];
+        for (i, class) in WorldCover::ALL.iter().enumerate() {
+            assert_eq!(class.index(), i, "{class} out of order");
+            seen[class.index()] = true;
+        }
+        assert!(seen.iter().all(|&s| s));
+    }
+
+    #[test]
+    fn set_then_get_round_trips() {
+        let mut palette = Palette::default();
+        let color = Rgb8::new(1, 2, 3);
+        palette.set(WorldCover::Moss, color);
+        assert_eq!(palette.get(WorldCover::Moss), color);
+        assert_eq!(
+            palette.get(WorldCover::Tree),
+            Palette::default().get(WorldCover::Tree)
+        );
+    }
+
+    #[test]
+    fn hue_sat_table_matches_per_class_colors() {
+        let table = Palette::default().hue_sat_table();
+        for class in WorldCover::ALL {
+            assert_eq!(
+                table[class.index()],
+                Palette::default().get(class).hue_sat()
+            );
+        }
+    }
+
+    #[test]
+    fn round_trips_toml_by_class_name() {
+        let mut palette = Palette::default();
+        palette.set(WorldCover::Water, Rgb8::new(0x00, 0x11, 0x22));
+        let text = toml::to_string_pretty(&palette).unwrap();
+        assert!(text.contains("water = \"#001122\""), "{text}");
+        let back: Palette = toml::from_str(&text).unwrap();
+        assert_eq!(back, palette);
+    }
+
+    /// Missing keys fall back to defaults rather than failing the parse.
+    #[test]
+    fn partial_toml_fills_defaults() {
+        let back: Palette = toml::from_str("tree = \"#010203\"").unwrap();
+        assert_eq!(back.get(WorldCover::Tree), Rgb8::new(1, 2, 3));
+        assert_eq!(
+            back.get(WorldCover::Water),
+            Palette::default().get(WorldCover::Water)
+        );
     }
 }

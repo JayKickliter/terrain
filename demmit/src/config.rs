@@ -1,6 +1,7 @@
 //! Persisted viewer state in `demmit.toml` under the OS config dir.
 
 use camino::Utf8PathBuf;
+use demmit::Palette;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 
@@ -68,6 +69,8 @@ pub struct Config {
     pub worldcover_h3db: Option<Utf8PathBuf>,
     /// Tile directories, finest resolution first.
     pub dirs: Vec<Utf8PathBuf>,
+    /// Per-class land-cover tint colors.
+    pub cover_colors: Palette,
     /// Window geometry.
     pub window: Window,
 }
@@ -84,6 +87,7 @@ impl Default for Config {
             coloring: Coloring::Grayscale,
             worldcover_h3db: None,
             dirs: Vec::new(),
+            cover_colors: Palette::default(),
             window: Window::default(),
         }
     }
@@ -130,6 +134,7 @@ impl Config {
 mod tests {
     use super::{Coloring, Config};
     use camino::Utf8PathBuf;
+    use demmit::{Rgb8, WorldCover};
 
     #[test]
     fn round_trips_defaults() {
@@ -149,11 +154,21 @@ mod tests {
         cfg.coloring = Coloring::Worldcover;
         cfg.window.x = Some(10.0);
         cfg.window.y = Some(20.0);
+        cfg.cover_colors
+            .set(WorldCover::Tree, Rgb8::new(0x01, 0x02, 0x03));
         let text = toml::to_string_pretty(&cfg).unwrap();
         let back: Config = toml::from_str(&text).unwrap();
         assert_eq!(back.dirs, cfg.dirs);
         assert_eq!(back.worldcover_h3db, cfg.worldcover_h3db);
         assert_eq!(back.coloring, Coloring::Worldcover);
         assert_eq!(back.window.x, Some(10.0));
+        assert_eq!(back.cover_colors, cfg.cover_colors);
+    }
+
+    /// A config written before land-cover colors existed must still load.
+    #[test]
+    fn loads_config_without_cover_colors() {
+        let cfg: Config = toml::from_str("center_lat = 1.0\ncenter_lon = 2.0\n").unwrap();
+        assert_eq!(cfg.cover_colors, Config::default().cover_colors);
     }
 }
