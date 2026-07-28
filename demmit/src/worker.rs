@@ -150,7 +150,7 @@ impl Pipeline {
 /// Spawns the IO and compute threads and returns a [`Pipeline`] handle.
 ///
 /// `cache_tiles` bounds how many tiles' gradients stay resident.
-/// `worldcover` is the optional WorldCover h3 disktree path.
+/// `worldcover` is the optional `WorldCover` h3 disktree path.
 pub fn spawn(ctx: egui::Context, cache_tiles: usize, worldcover: Option<Utf8PathBuf>) -> Pipeline {
     let (to_compute, compute_rx) = unbounded::<ToCompute>();
     let (to_io, io_rx) = unbounded::<ToIo>();

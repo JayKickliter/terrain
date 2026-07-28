@@ -184,7 +184,7 @@ impl Tile {
         if min_elevation == Elev::MAX {
             min_elevation = self.samples.min();
             self.min_elevation.store(min_elevation, Ordering::SeqCst);
-        };
+        }
         min_elevation
     }
 
@@ -198,7 +198,7 @@ impl Tile {
             // stored more than once, but atomically.
             max_elevation = self.samples.max();
             self.max_elevation.store(max_elevation, Ordering::SeqCst);
-        };
+        }
         max_elevation
     }
 
@@ -236,18 +236,18 @@ impl Tile {
     /// one of the following:
     ///
     /// - `usize`: The linear index of the elevation sample in the
-    ///    underlying data array, where `0` corresponds to the
-    ///    northwest corner of the tile.
+    ///   underlying data array, where `0` corresponds to the northwest
+    ///   corner of the tile.
     /// - `(usize, usize)`: A 2D index representing the `(x, y)`
-    ///    position of the elevation sample, where `(0, 0)`
-    ///    corresponds to the northwest corner of the tile.
+    ///   position of the elevation sample, where `(0, 0)` corresponds
+    ///   to the northwest corner of the tile.
     /// - `Geo`: A geographic coordinate specifying an absolute
-    ///    location in latitude and longitude.
+    ///   location in latitude and longitude.
     ///
     /// # Returns
     ///
     /// - `Some(Elev)` if the location is valid and contained within
-    ///    the tile.
+    ///   the tile.
     /// - `None` if the location is out of bounds or invalid.
     ///
     /// # Examples
@@ -303,13 +303,13 @@ impl Tile {
     /// one of the following:
     ///
     /// - `usize`: The linear index of the elevation sample in the
-    ///    underlying data array, where `0` corresponds to the
-    ///    northwest corner of the tile.
+    ///   underlying data array, where `0` corresponds to the
+    ///   northwest corner of the tile.
     /// - `(usize, usize)`: A 2D index representing the `(x, y)`
-    ///    position of the elevation sample, where `(0, 0)`
-    ///    corresponds to the northwest corner of the tile.
+    ///   position of the elevation sample, where `(0, 0)`
+    ///   corresponds to the northwest corner of the tile.
     /// - `Geo`: A geographic coordinate specifying an absolute
-    ///    location in latitude and longitude.
+    ///   location in latitude and longitude.
     ///
     /// # Panics
     ///

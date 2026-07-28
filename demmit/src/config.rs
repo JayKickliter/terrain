@@ -64,7 +64,7 @@ pub struct Config {
     pub sun_elev_deg: f32,
     /// Active coloring mode.
     pub coloring: Coloring,
-    /// Path to the WorldCover h3 disktree, if configured.
+    /// Path to the `WorldCover` h3 disktree, if configured.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worldcover_h3db: Option<Utf8PathBuf>,
     /// Tile directories, finest resolution first.
@@ -148,12 +148,12 @@ mod tests {
 
     #[test]
     fn round_trips_full() {
-        let mut cfg = Config::default();
-        cfg.worldcover_h3db = Some(Utf8PathBuf::from("/tmp/wc.h3tree"));
-        cfg.dirs = vec![Utf8PathBuf::from("/a"), Utf8PathBuf::from("/b")];
-        cfg.coloring = Coloring::Worldcover;
-        cfg.window.x = Some(10.0);
-        cfg.window.y = Some(20.0);
+        let mut cfg = Config {
+            worldcover_h3db: Some(Utf8PathBuf::from("/tmp/wc.h3tree")),
+            dirs: vec![Utf8PathBuf::from("/a"), Utf8PathBuf::from("/b")],
+            coloring: Coloring::Worldcover,
+            ..Default::default()
+        };
         cfg.cover_colors
             .set(WorldCover::Tree, Rgb8::new(0x01, 0x02, 0x03));
         let text = toml::to_string_pretty(&cfg).unwrap();

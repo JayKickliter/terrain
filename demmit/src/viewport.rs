@@ -75,8 +75,8 @@ impl Viewport {
         if w <= 0.0 || h <= 0.0 {
             return;
         }
-        self.center_lon = (lon0 + lon1) / 2.0;
-        self.center_lat = (lat0 + lat1) / 2.0;
+        self.center_lon = f64::midpoint(lon0, lon1);
+        self.center_lat = f64::midpoint(lat0, lat1);
         let fit = (f64::from(area.width()) / w).min(f64::from(area.height()) / h);
         self.ppd = fit.clamp(MIN_PPD, MAX_PPD);
     }
@@ -171,7 +171,7 @@ mod tests {
         let a = area();
         let mut vp = vp();
         let (p0, p1) = (pos2(200.0, 150.0), pos2(700.0, 650.0));
-        let mid = pos2((p0.x + p1.x) / 2.0, (p0.y + p1.y) / 2.0);
+        let mid = pos2(f32::midpoint(p0.x, p1.x), f32::midpoint(p0.y, p1.y));
         let (mid_lon, mid_lat) = screen_to_world(&vp, a, mid);
         vp.zoom_to_box(a, p0, p1);
         // Box center becomes the view center.

@@ -67,8 +67,7 @@ fn sw_to_ne(dim: usize) -> Vec<(usize, usize)> {
 }
 
 fn nw_to_sw(dim: usize) -> Vec<(usize, usize)> {
-    let path = std::iter::repeat(0)
-        .take(dim)
+    let path = std::iter::repeat_n(0, dim)
         .interleave(0..dim)
         .tuples()
         .collect::<Vec<_>>();
@@ -84,8 +83,7 @@ fn sw_to_nw(dim: usize) -> Vec<(usize, usize)> {
 }
 
 fn ne_to_se(dim: usize) -> Vec<(usize, usize)> {
-    let path = std::iter::repeat(dim - 1)
-        .take(dim)
+    let path = std::iter::repeat_n(dim - 1, dim)
         .interleave(0..dim)
         .tuples()
         .collect::<Vec<_>>();
@@ -102,7 +100,7 @@ fn se_to_ne(dim: usize) -> Vec<(usize, usize)> {
 
 fn nw_to_ne(dim: usize) -> Vec<(usize, usize)> {
     let path = (0..dim)
-        .interleave(std::iter::repeat(0).take(dim))
+        .interleave(std::iter::repeat_n(0, dim))
         .tuples()
         .collect::<Vec<_>>();
     assert_eq!(path.first(), Some(&(0, 0)));

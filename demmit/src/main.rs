@@ -117,7 +117,7 @@ fn render(
     );
 
     let mat = tile_to_matrix(&tile);
-    let cell_size = tile.resolution() as f32 * demmit::METERS_PER_ARCSEC;
+    let cell_size = f32::from(tile.resolution()) * demmit::METERS_PER_ARCSEC;
     let shaded_mat = apply_shading(
         azimuth.to_radians(),
         elevation.to_radians(),
@@ -125,24 +125,21 @@ fn render(
         &mat,
     );
 
-    match worldcover {
-        Some(wc_path) => {
-            let h3db = DiskTreeMap::open(wc_path)?;
-            let worldcover_mat = tile_to_worldcover_matrix(&h3db, &tile);
-            let palette = config::Config::load().cover_colors;
-            let mut img = matrix_to_wc_image(&worldcover_mat, &shaded_mat, &palette);
-            if let Some(size) = constrain {
-                img = resize(&img, size, size, FilterType::Lanczos3);
-            }
-            img.save(out)?;
+    if let Some(wc_path) = worldcover {
+        let h3db = DiskTreeMap::open(wc_path)?;
+        let worldcover_mat = tile_to_worldcover_matrix(&h3db, &tile);
+        let palette = config::Config::load().cover_colors;
+        let mut img = matrix_to_wc_image(&worldcover_mat, &shaded_mat, &palette);
+        if let Some(size) = constrain {
+            img = resize(&img, size, size, FilterType::Lanczos3);
         }
-        None => {
-            let mut img = matrix_to_grayscale(&shaded_mat);
-            if let Some(size) = constrain {
-                img = resize(&img, size, size, FilterType::Lanczos3);
-            }
-            img.save(out)?;
+        img.save(out)?;
+    } else {
+        let mut img = matrix_to_grayscale(&shaded_mat);
+        if let Some(size) = constrain {
+            img = resize(&img, size, size, FilterType::Lanczos3);
         }
+        img.save(out)?;
     }
 
     Ok(())

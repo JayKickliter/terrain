@@ -1,4 +1,4 @@
-//! ESA WorldCover land-cover classes and the colors used to tint them.
+//! ESA `WorldCover` land-cover classes and the colors used to tint them.
 
 use crate::color::Rgb8;
 use h3o::{LatLng, Resolution};
