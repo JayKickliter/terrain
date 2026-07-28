@@ -134,13 +134,36 @@ impl WorldCover {
     }
 }
 
+/// Number of land-cover classes.
+const CLASSES: usize = WorldCover::ALL.len();
+
+/// Default tint colors, in [`WorldCover::index`] order.
+///
+/// Lightness is arbitrary here since only hue and saturation are used.
+fn default_colors() -> [Rgb8; CLASSES] {
+    let hsl = |h: f32, s: f32| Rgb8::from_hsl(h, s, 50.0);
+    [
+        hsl(36.0, 92.0),
+        hsl(209.0, 11.0),
+        hsl(28.0, 80.0),
+        hsl(180.0, 14.0),
+        hsl(42.0, 46.0),
+        hsl(203.0, 51.0),
+        hsl(283.0, 37.0),
+        hsl(54.0, 45.0),
+        hsl(145.0, 63.0),
+        hsl(204.0, 64.0),
+        hsl(204.0, 66.0),
+    ]
+}
+
 /// Per-class tint colors for land-cover shading.
 ///
 /// Only the hue and saturation of each color reach the render: the
 /// hillshade supplies lightness per pixel.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-#[serde(from = "PaletteToml", into = "PaletteToml")]
-pub struct Palette([Rgb8; WorldCover::ALL.len()]);
+#[serde(from = "ByClass<Rgb8>", into = "ByClass<Rgb8>")]
+pub struct Palette([Rgb8; CLASSES]);
 
 impl Palette {
     /// Tint color for a class.
@@ -156,78 +179,154 @@ impl Palette {
     }
 
     /// Hue (degrees) and saturation (percent) per class, indexed by [`WorldCover::index`].
+    ///
+    /// Classes `mask` disables get zero saturation, which shades them
+    /// as plain grayscale hillshade.
     #[must_use]
-    pub fn hue_sat_table(&self) -> [(f32, f32); WorldCover::ALL.len()] {
-        self.0.map(Rgb8::hue_sat)
+    pub fn hue_sat_table(&self, mask: &CoverMask) -> [(f32, f32); CLASSES] {
+        std::array::from_fn(|i| {
+            if mask.0[i] {
+                self.0[i].hue_sat()
+            } else {
+                (0.0, 0.0)
+            }
+        })
     }
 }
 
 impl Default for Palette {
     fn default() -> Self {
-        Self::from(PaletteToml::default())
+        Self(default_colors())
     }
 }
 
-/// Named-field mirror of [`Palette`], giving `demmit.toml` readable keys.
+/// Which land-cover classes are tinted, the rest shading as grayscale.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(from = "ByClass<bool>", into = "ByClass<bool>")]
+pub struct CoverMask([bool; CLASSES]);
+
+impl CoverMask {
+    /// Every class tinted.
+    pub const ALL_ON: Self = Self([true; CLASSES]);
+
+    /// Every class shaded as grayscale.
+    pub const ALL_OFF: Self = Self([false; CLASSES]);
+
+    /// Whether a class is tinted.
+    #[inline]
+    #[must_use]
+    pub const fn get(&self, class: WorldCover) -> bool {
+        self.0[class.index()]
+    }
+
+    /// Sets whether a class is tinted.
+    pub fn set(&mut self, class: WorldCover, tinted: bool) {
+        self.0[class.index()] = tinted;
+    }
+}
+
+impl Default for CoverMask {
+    fn default() -> Self {
+        Self::ALL_ON
+    }
+}
+
+/// Per-class values in `demmit.toml`, one readable key per class.
+///
+/// Absent keys stay `None` so [`ByClass::resolve`] can fill them from a
+/// caller-supplied default.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(default)]
-struct PaletteToml {
-    bare: Rgb8,
-    built: Rgb8,
-    crop: Rgb8,
-    frozen: Rgb8,
-    grass: Rgb8,
-    mangrove: Rgb8,
-    moss: Rgb8,
-    shrub: Rgb8,
-    tree: Rgb8,
-    water: Rgb8,
-    wet: Rgb8,
+struct ByClass<T> {
+    bare: Option<T>,
+    built: Option<T>,
+    crop: Option<T>,
+    frozen: Option<T>,
+    grass: Option<T>,
+    mangrove: Option<T>,
+    moss: Option<T>,
+    shrub: Option<T>,
+    tree: Option<T>,
+    water: Option<T>,
+    wet: Option<T>,
 }
 
-impl Default for PaletteToml {
+impl<T> Default for ByClass<T> {
     fn default() -> Self {
-        let hsl = |h: f32, s: f32| Rgb8::from_hsl(h, s, 50.0);
         Self {
-            bare: hsl(36.0, 92.0),
-            built: hsl(209.0, 11.0),
-            crop: hsl(28.0, 80.0),
-            frozen: hsl(180.0, 14.0),
-            grass: hsl(42.0, 46.0),
-            mangrove: hsl(203.0, 51.0),
-            moss: hsl(283.0, 37.0),
-            shrub: hsl(54.0, 45.0),
-            tree: hsl(145.0, 63.0),
-            water: hsl(204.0, 64.0),
-            wet: hsl(204.0, 66.0),
+            bare: None,
+            built: None,
+            crop: None,
+            frozen: None,
+            grass: None,
+            mangrove: None,
+            moss: None,
+            shrub: None,
+            tree: None,
+            water: None,
+            wet: None,
         }
     }
 }
 
-impl From<PaletteToml> for Palette {
-    fn from(t: PaletteToml) -> Self {
-        Self([
-            t.bare, t.built, t.crop, t.frozen, t.grass, t.mangrove, t.moss, t.shrub, t.tree,
-            t.water, t.wet,
-        ])
+impl<T: Copy> ByClass<T> {
+    /// Fills absent keys from `fallback`, in [`WorldCover::index`] order.
+    fn resolve(self, fallback: [T; CLASSES]) -> [T; CLASSES] {
+        [
+            self.bare.unwrap_or(fallback[0]),
+            self.built.unwrap_or(fallback[1]),
+            self.crop.unwrap_or(fallback[2]),
+            self.frozen.unwrap_or(fallback[3]),
+            self.grass.unwrap_or(fallback[4]),
+            self.mangrove.unwrap_or(fallback[5]),
+            self.moss.unwrap_or(fallback[6]),
+            self.shrub.unwrap_or(fallback[7]),
+            self.tree.unwrap_or(fallback[8]),
+            self.water.unwrap_or(fallback[9]),
+            self.wet.unwrap_or(fallback[10]),
+        ]
     }
 }
 
-impl From<Palette> for PaletteToml {
-    fn from(p: Palette) -> Self {
+impl<T: Copy> From<[T; CLASSES]> for ByClass<T> {
+    fn from(values: [T; CLASSES]) -> Self {
         Self {
-            bare: p.get(WorldCover::Bare),
-            built: p.get(WorldCover::Built),
-            crop: p.get(WorldCover::Crop),
-            frozen: p.get(WorldCover::Frozen),
-            grass: p.get(WorldCover::Grass),
-            mangrove: p.get(WorldCover::Mangrove),
-            moss: p.get(WorldCover::Moss),
-            shrub: p.get(WorldCover::Shrub),
-            tree: p.get(WorldCover::Tree),
-            water: p.get(WorldCover::Water),
-            wet: p.get(WorldCover::Wet),
+            bare: Some(values[0]),
+            built: Some(values[1]),
+            crop: Some(values[2]),
+            frozen: Some(values[3]),
+            grass: Some(values[4]),
+            mangrove: Some(values[5]),
+            moss: Some(values[6]),
+            shrub: Some(values[7]),
+            tree: Some(values[8]),
+            water: Some(values[9]),
+            wet: Some(values[10]),
         }
+    }
+}
+
+impl From<ByClass<Rgb8>> for Palette {
+    fn from(fields: ByClass<Rgb8>) -> Self {
+        Self(fields.resolve(default_colors()))
+    }
+}
+
+impl From<Palette> for ByClass<Rgb8> {
+    fn from(palette: Palette) -> Self {
+        palette.0.into()
+    }
+}
+
+impl From<ByClass<bool>> for CoverMask {
+    fn from(fields: ByClass<bool>) -> Self {
+        Self(fields.resolve(Self::ALL_ON.0))
+    }
+}
+
+impl From<CoverMask> for ByClass<bool> {
+    fn from(mask: CoverMask) -> Self {
+        mask.0.into()
     }
 }
 
@@ -254,7 +353,7 @@ impl TryFrom<u8> for WorldCover {
 
 #[cfg(test)]
 mod tests {
-    use super::{Palette, WorldCover};
+    use super::{CoverMask, Palette, WorldCover};
     use crate::color::Rgb8;
 
     #[test]
@@ -281,7 +380,7 @@ mod tests {
 
     #[test]
     fn hue_sat_table_matches_per_class_colors() {
-        let table = Palette::default().hue_sat_table();
+        let table = Palette::default().hue_sat_table(&CoverMask::ALL_ON);
         for class in WorldCover::ALL {
             assert_eq!(
                 table[class.index()],
@@ -309,5 +408,44 @@ mod tests {
             back.get(WorldCover::Water),
             Palette::default().get(WorldCover::Water)
         );
+    }
+
+    /// A disabled class must desaturate, which shades it as grayscale.
+    #[test]
+    fn disabled_class_loses_saturation() {
+        let mut mask = CoverMask::ALL_ON;
+        mask.set(WorldCover::Water, false);
+        let table = Palette::default().hue_sat_table(&mask);
+        assert_eq!(table[WorldCover::Water.index()], (0.0, 0.0));
+        assert_ne!(table[WorldCover::Tree.index()], (0.0, 0.0));
+    }
+
+    #[test]
+    fn all_off_desaturates_everything() {
+        let table = Palette::default().hue_sat_table(&CoverMask::ALL_OFF);
+        assert!(table.iter().all(|&hs| hs == (0.0, 0.0)));
+    }
+
+    #[test]
+    fn mask_round_trips_toml_by_class_name() {
+        let mut mask = CoverMask::ALL_ON;
+        mask.set(WorldCover::Built, false);
+        let text = toml::to_string_pretty(&mask).unwrap();
+        assert!(text.contains("built = false"), "{text}");
+        let back: CoverMask = toml::from_str(&text).unwrap();
+        assert_eq!(back, mask);
+        assert!(back.get(WorldCover::Tree));
+        assert!(!back.get(WorldCover::Built));
+    }
+
+    /// Absent keys default to tinted, so old configs keep their look.
+    #[test]
+    fn partial_mask_toml_defaults_to_on() {
+        let back: CoverMask = toml::from_str("water = false").unwrap();
+        assert!(!back.get(WorldCover::Water));
+        assert!(WorldCover::ALL
+            .iter()
+            .filter(|&&c| c != WorldCover::Water)
+            .all(|&c| back.get(c)));
     }
 }

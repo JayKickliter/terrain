@@ -7,7 +7,7 @@
 use crate::{config::Coloring, tiles::TileKey};
 use camino::Utf8PathBuf;
 use crossbeam_channel::{unbounded, Receiver, Sender};
-use demmit::{tile_to_worldcover_downsampled, Gradients, Palette, Sun, WorldCover};
+use demmit::{tile_to_worldcover_downsampled, CoverMask, Gradients, Palette, Sun, WorldCover};
 use dropclock::DropClock;
 use eframe::egui;
 use hextree::disktree::DiskTreeMap;
@@ -39,6 +39,8 @@ pub struct ShadeParams {
     pub coloring: Coloring,
     /// Per-class land-cover tint colors.
     pub palette: Palette,
+    /// Which land-cover classes are tinted.
+    pub mask: CoverMask,
 }
 
 /// Compact identity of a shading result, used to skip redundant work.
@@ -50,6 +52,7 @@ pub struct Sig {
     tile_px: usize,
     coloring: u8,
     palette: Palette,
+    mask: CoverMask,
 }
 
 impl Sig {
@@ -65,6 +68,7 @@ impl Sig {
                 Coloring::Worldcover => 1,
             },
             palette: params.palette,
+            mask: params.mask,
         }
     }
 }
@@ -328,6 +332,7 @@ fn shade_and_send(
             g.shade_worldcover(
                 classes,
                 &params.palette,
+                &params.mask,
                 params.sun,
                 params.z_factor,
                 &mut rgba,
@@ -352,7 +357,7 @@ mod tests {
     use super::{spawn, ShadeParams, Sig, TileUpdate};
     use crate::{config::Coloring, tiles::TileKey};
     use camino::Utf8PathBuf;
-    use demmit::{Palette, Sun};
+    use demmit::{CoverMask, Palette, Sun};
     use eframe::egui;
     use std::{collections::HashMap, time::Duration};
 
@@ -373,6 +378,7 @@ mod tests {
             tile_px,
             coloring: Coloring::Grayscale,
             palette: Palette::default(),
+            mask: CoverMask::ALL_ON,
         }
     }
 

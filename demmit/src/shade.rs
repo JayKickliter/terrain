@@ -6,7 +6,8 @@
 //! pixel (no per-pixel trig), which vectorizes well.
 
 use crate::{
-    color::hsl_to_rgb, Palette, WorldCover, AMBIENT_LIGHT, DIRECT_LIGHT, METERS_PER_ARCSEC,
+    color::hsl_to_rgb, CoverMask, Palette, WorldCover, AMBIENT_LIGHT, DIRECT_LIGHT,
+    METERS_PER_ARCSEC,
 };
 use multiversion::multiversion;
 use nasadem::Tile;
@@ -154,6 +155,7 @@ impl Gradients {
         &self,
         cover: &[WorldCover],
         palette: &Palette,
+        mask: &CoverMask,
         sun: Sun,
         z_factor: f32,
         out: &mut [u8],
@@ -161,7 +163,7 @@ impl Gradients {
         assert_eq!(cover.len(), self.len(), "cover buffer size mismatch");
         assert_eq!(out.len(), self.len() * 4, "output buffer size mismatch");
         let [lx, ly, lz] = sun.light();
-        let hue_sat = palette.hue_sat_table();
+        let hue_sat = palette.hue_sat_table(mask);
         for (i, px) in out.chunks_exact_mut(4).enumerate() {
             let lum = reflectance(self.dzdx[i], self.dzdy[i], lx, ly, lz, z_factor);
             let (hue, sat) = hue_sat[cover[i].index()];
@@ -194,7 +196,8 @@ fn shade_grayscale_kernel(dzdx: &[f32], dzdy: &[f32], light: [f32; 3], z: f32, o
 mod tests {
     use super::{Gradients, Sun};
     use crate::{
-        apply_shading, matrix_to_grayscale, tile_to_matrix, Palette, WorldCover, METERS_PER_ARCSEC,
+        apply_shading, matrix_to_grayscale, tile_to_matrix, CoverMask, Palette, WorldCover,
+        METERS_PER_ARCSEC,
     };
     use nasadem::Tile;
 
@@ -208,11 +211,47 @@ mod tests {
             az_rad: 315.0_f32.to_radians(),
             elev_rad: 45.0_f32.to_radians(),
         };
-        grad.shade_worldcover(&cover, &Palette::default(), sun, 1.0, &mut rgba);
+        grad.shade_worldcover(
+            &cover,
+            &Palette::default(),
+            &CoverMask::ALL_ON,
+            sun,
+            1.0,
+            &mut rgba,
+        );
         assert!(rgba.chunks_exact(4).all(|px| px[3] == 255));
         assert!(rgba
             .chunks_exact(4)
             .any(|px| px[0] != px[1] || px[1] != px[2]));
+    }
+
+    /// Disabling every class must reproduce the grayscale shader exactly.
+    #[test]
+    fn all_classes_disabled_matches_grayscale() {
+        let elev: Vec<f32> = (0..32 * 32).map(|i| (i % 13) as f32).collect();
+        let grad = Gradients::from_elevations(&elev, 32, 32, 30.0);
+        let cover: Vec<WorldCover> = WorldCover::ALL
+            .iter()
+            .copied()
+            .cycle()
+            .take(grad.len())
+            .collect();
+        let sun = Sun {
+            az_rad: 315.0_f32.to_radians(),
+            elev_rad: 45.0_f32.to_radians(),
+        };
+        let mut tinted = vec![0_u8; grad.len() * 4];
+        let mut gray = vec![0_u8; grad.len() * 4];
+        grad.shade_worldcover(
+            &cover,
+            &Palette::default(),
+            &CoverMask::ALL_OFF,
+            sun,
+            1.0,
+            &mut tinted,
+        );
+        grad.shade_grayscale(sun, 1.0, &mut gray);
+        assert_eq!(tinted, gray);
     }
 
     /// Gradient reshade must match the trusted `apply_shading` path.

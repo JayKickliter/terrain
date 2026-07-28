@@ -10,7 +10,8 @@ mod worldcover;
 pub use color::Rgb8;
 pub use shade::{Gradients, Sun};
 pub use worldcover::{
-    tile_to_worldcover_downsampled, tile_to_worldcover_matrix, worldcover_at, Palette, WorldCover,
+    tile_to_worldcover_downsampled, tile_to_worldcover_matrix, worldcover_at, CoverMask, Palette,
+    WorldCover,
 };
 
 /// Approximate ground distance of one arcsecond at the equator, in meters.
@@ -107,13 +108,14 @@ pub fn matrix_to_wc_image(
     worldcover_mat: &DMatrix<WorldCover>,
     slope_mat: &DMatrix<f32>,
     palette: &Palette,
+    mask: &CoverMask,
 ) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
     let (rows, cols) = slope_mat.shape();
     let (rows, cols) = (
         u16::try_from(rows).expect("unexpected size"),
         u16::try_from(cols).expect("unexpected size"),
     );
-    let hue_sat = palette.hue_sat_table();
+    let hue_sat = palette.hue_sat_table(mask);
 
     let f = |col, row| {
         let slope = *slope_mat.index((row as usize, col as usize));

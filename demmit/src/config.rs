@@ -1,7 +1,7 @@
 //! Persisted viewer state in `demmit.toml` under the OS config dir.
 
 use camino::Utf8PathBuf;
-use demmit::Palette;
+use demmit::{CoverMask, Palette};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 
@@ -71,6 +71,8 @@ pub struct Config {
     pub dirs: Vec<Utf8PathBuf>,
     /// Per-class land-cover tint colors.
     pub cover_colors: Palette,
+    /// Which land-cover classes are tinted, the rest shading as grayscale.
+    pub cover_enabled: CoverMask,
     /// Window geometry.
     pub window: Window,
 }
@@ -88,6 +90,7 @@ impl Default for Config {
             worldcover_h3db: None,
             dirs: Vec::new(),
             cover_colors: Palette::default(),
+            cover_enabled: CoverMask::default(),
             window: Window::default(),
         }
     }
@@ -132,7 +135,7 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use super::{Coloring, Config};
+    use super::{Coloring, Config, Window};
     use camino::Utf8PathBuf;
     use demmit::{Rgb8, WorldCover};
 
@@ -152,6 +155,11 @@ mod tests {
             worldcover_h3db: Some(Utf8PathBuf::from("/tmp/wc.h3tree")),
             dirs: vec![Utf8PathBuf::from("/a"), Utf8PathBuf::from("/b")],
             coloring: Coloring::Worldcover,
+            window: Window {
+                x: Some(10.0),
+                y: Some(20.0),
+                ..Default::default()
+            },
             ..Default::default()
         };
         cfg.cover_colors
@@ -170,5 +178,16 @@ mod tests {
     fn loads_config_without_cover_colors() {
         let cfg: Config = toml::from_str("center_lat = 1.0\ncenter_lon = 2.0\n").unwrap();
         assert_eq!(cfg.cover_colors, Config::default().cover_colors);
+        assert_eq!(cfg.cover_enabled, Config::default().cover_enabled);
+    }
+
+    #[test]
+    fn round_trips_disabled_classes() {
+        let mut cfg = Config::default();
+        cfg.cover_enabled.set(WorldCover::Built, false);
+        let text = toml::to_string_pretty(&cfg).unwrap();
+        let back: Config = toml::from_str(&text).unwrap();
+        assert!(!back.cover_enabled.get(WorldCover::Built));
+        assert!(back.cover_enabled.get(WorldCover::Tree));
     }
 }

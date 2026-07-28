@@ -9,7 +9,7 @@ use crate::{
 };
 use anyhow::anyhow;
 use camino::{Utf8Path, Utf8PathBuf};
-use demmit::{worldcover_at, Palette, Rgb8, Sun, WorldCover};
+use demmit::{worldcover_at, CoverMask, Palette, Rgb8, Sun, WorldCover};
 use eframe::egui;
 use egui_plot::{Legend, Line, Plot, PlotPoints};
 use hextree::disktree::DiskTreeMap;
@@ -133,6 +133,7 @@ struct App {
     z_factor: f32,
     coloring: Coloring,
     cover_colors: Palette,
+    cover_enabled: CoverMask,
     show_cover_colors: bool,
     /// One `#rrggbb` edit buffer per class, indexed by [`WorldCover::index`].
     cover_hex: Vec<String>,
@@ -184,6 +185,7 @@ impl App {
             z_factor: cfg.z_factor,
             coloring: cfg.coloring,
             cover_colors: cfg.cover_colors,
+            cover_enabled: cfg.cover_enabled,
             show_cover_colors: false,
             cover_hex: hex_inputs(&cfg.cover_colors),
             worldcover_h3db: cfg.worldcover_h3db,
@@ -338,6 +340,7 @@ impl App {
             worldcover_h3db: self.worldcover_h3db.clone(),
             dirs: self.dirs.iter().map(|d| d.path.clone()).collect(),
             cover_colors: self.cover_colors,
+            cover_enabled: self.cover_enabled,
             window: self.window,
         }
     }
@@ -467,7 +470,7 @@ impl App {
             .resizable(false)
             .show(ctx, |ui| {
                 egui::Grid::new("cover_colors_grid")
-                    .num_columns(3)
+                    .num_columns(4)
                     .spacing([8.0, 4.0])
                     .show(ui, |ui| {
                         for class in WorldCover::ALL {
@@ -476,18 +479,36 @@ impl App {
                         }
                     });
                 ui.separator();
-                if ui.button("reset to defaults").clicked() {
-                    self.cover_colors = Palette::default();
-                    self.cover_hex = hex_inputs(&self.cover_colors);
-                }
+                ui.horizontal(|ui| {
+                    if ui.button("all").clicked() {
+                        self.cover_enabled = CoverMask::ALL_ON;
+                    }
+                    if ui.button("none").clicked() {
+                        self.cover_enabled = CoverMask::ALL_OFF;
+                    }
+                    if ui.button("reset colors").clicked() {
+                        self.cover_colors = Palette::default();
+                        self.cover_hex = hex_inputs(&self.cover_colors);
+                    }
+                });
             });
         self.show_cover_colors = open;
     }
 
-    /// One editor row: class name, swatch picker, and hex entry.
+    /// One editor row: tint toggle, class name, swatch picker, and hex entry.
     fn cover_color_row(&mut self, ui: &mut egui::Ui, class: WorldCover) {
         let slot = class.index();
-        ui.label(class.to_string());
+
+        let mut tinted = self.cover_enabled.get(class);
+        if ui
+            .checkbox(&mut tinted, "")
+            .on_hover_text("untick to shade this class as plain grayscale")
+            .changed()
+        {
+            self.cover_enabled.set(class, tinted);
+        }
+        let name = egui::RichText::new(class.to_string());
+        ui.label(if tinted { name } else { name.weak() });
 
         let current = self.cover_colors.get(class);
         let mut picked = egui::Color32::from_rgb(current.r, current.g, current.b);
@@ -618,6 +639,7 @@ impl App {
             tile_px,
             coloring: self.coloring,
             palette: self.cover_colors,
+            mask: self.cover_enabled,
         };
         let want_sig = Sig::new(params);
 
