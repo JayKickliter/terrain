@@ -13,7 +13,7 @@ pub struct Sample<'a> {
 }
 
 #[allow(clippy::must_use_candidate)]
-impl<'a> Sample<'a> {
+impl Sample<'_> {
     /// Returns sample elevation in meters.
     #[inline]
     pub fn elevation(&self) -> Elev {
@@ -47,10 +47,10 @@ impl<'a> Sample<'a> {
     }
 }
 
-impl<'a> std::cmp::PartialEq for Sample<'a> {
+impl std::cmp::PartialEq for Sample<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.index == other.index && std::ptr::eq(self, other)
     }
 }
 
-impl<'a> std::cmp::Eq for Sample<'a> {}
+impl std::cmp::Eq for Sample<'_> {}

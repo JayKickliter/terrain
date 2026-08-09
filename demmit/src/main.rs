@@ -1,6 +1,26 @@
+mod app;
+mod config;
+mod sun;
+mod tiles;
+mod trace;
+mod viewport;
+mod worker;
+
 use camino::Utf8PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use demmit::{
+    apply_shading, matrix_to_grayscale, matrix_to_wc_image, tile_to_matrix,
+    tile_to_worldcover_matrix,
+};
+use hextree::disktree::DiskTreeMap;
+use image::imageops::{resize, FilterType};
 use nasadem::Tile;
+#[cfg(not(target_env = "msvc"))]
+use tikv_jemallocator::Jemalloc;
+
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
 
 type AnyRes = anyhow::Result<()>;
 
@@ -15,13 +35,41 @@ struct Cli {
 enum SubCmd {
     /// Render a NASADEM/SRTM '.hgt' file as an image.
     Render(RenderArgs),
+
+    /// Open the interactive hillshade tile viewer.
+    View(ViewArgs),
+}
+
+#[derive(Clone, Args)]
+struct ViewArgs {
+    /// Directory of '.hgt' tiles. Repeat or pass several for multiple resolutions.
+    #[clap(long, short, num_args = 1..)]
+    dem: Vec<Utf8PathBuf>,
+
+    /// Override the saved/default map center latitude.
+    #[clap(long, allow_hyphen_values = true)]
+    lat: Option<f64>,
+
+    /// Override the saved/default map center longitude.
+    #[clap(long, allow_hyphen_values = true)]
+    lon: Option<f64>,
 }
 
 #[derive(Clone, Args)]
 struct RenderArgs {
-    /// Bit depth
+    #[clap(long, short, default_value_t = 315.0)]
+    azimuth: f32,
+
+    #[clap(long, short, default_value_t = 45.0)]
+    elevation: f32,
+
+    /// Resize output to this this value in both x and y dimensions.
     #[clap(long, short)]
-    depth: Option<BitDepth>,
+    constrain: Option<u32>,
+
+    /// Path to worldcover `h3db`.
+    #[clap(long, short)]
+    worldcover: Option<Utf8PathBuf>,
 
     /// Source NASADEM/SRTM hgt file.
     src: Utf8PathBuf,
@@ -41,7 +89,16 @@ enum BitDepth {
     _16,
 }
 
-fn render(RenderArgs { depth, src, dest }: RenderArgs) -> AnyRes {
+fn render(
+    RenderArgs {
+        azimuth,
+        elevation,
+        constrain,
+        worldcover,
+        src,
+        dest,
+    }: RenderArgs,
+) -> AnyRes {
     let tile = Tile::load(&src)?;
     let out = dest.map_or_else(
         || {
@@ -59,31 +116,58 @@ fn render(RenderArgs { depth, src, dest }: RenderArgs) -> AnyRes {
         },
     );
 
-    match (depth, out.extension()) {
-        (None | Some(BitDepth::_8), Some("jpg")) => {
-            let img = tile.to_image::<u8>();
-            img.save(out)?;
+    let mat = tile_to_matrix(&tile);
+    let cell_size = f32::from(tile.resolution()) * demmit::METERS_PER_ARCSEC;
+    let shaded_mat = apply_shading(
+        azimuth.to_radians(),
+        elevation.to_radians(),
+        cell_size,
+        &mat,
+    );
+
+    if let Some(wc_path) = worldcover {
+        let h3db = DiskTreeMap::open(wc_path)?;
+        let worldcover_mat = tile_to_worldcover_matrix(&h3db, &tile);
+        let cfg = config::Config::load();
+        let (palette, mask) = (cfg.cover_colors, cfg.cover_enabled);
+        let mut img = matrix_to_wc_image(&worldcover_mat, &shaded_mat, &palette, &mask);
+        if let Some(size) = constrain {
+            img = resize(&img, size, size, FilterType::Lanczos3);
         }
-        (None | Some(BitDepth::_16), Some("png" | "tif" | "tiff")) => {
-            let img = tile.to_image::<u16>();
-            img.save(out)?;
+        img.save(out)?;
+    } else {
+        let mut img = matrix_to_grayscale(&shaded_mat);
+        if let Some(size) = constrain {
+            img = resize(&img, size, size, FilterType::Lanczos3);
         }
-        (Some(BitDepth::_16), _) => {
-            let img = tile.to_image::<u16>();
-            img.save(out)?;
-        }
-        (_, _) => {
-            let img = tile.to_image::<u8>();
-            img.save(out)?;
-        }
-    };
+        img.save(out)?;
+    }
 
     Ok(())
+}
+
+fn view(args: ViewArgs) -> AnyRes {
+    let mut cfg = config::Config::load();
+    if !args.dem.is_empty() {
+        cfg.dirs = args.dem;
+    }
+    if cfg.dirs.is_empty() {
+        cfg.dirs = vec![Utf8PathBuf::from("data/nasadem/1arcsecond")];
+    }
+    if let Some(lat) = args.lat {
+        cfg.center_lat = lat;
+    }
+    if let Some(lon) = args.lon {
+        cfg.center_lon = lon;
+    }
+    trace::to_stdout();
+    app::run(cfg)
 }
 
 fn main() -> AnyRes {
     let cli = Cli::parse();
     match cli.command {
         SubCmd::Render(args) => render(args),
+        SubCmd::View(args) => view(args),
     }
 }
