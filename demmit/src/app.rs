@@ -249,6 +249,16 @@ impl App {
         format!("https://www.google.com/maps/@{lat:.6},{lon:.6},{zoom:.1}z")
     }
 
+    /// Google Earth web URL for a point at the current zoom.
+    ///
+    /// Earth takes a camera distance in meters rather than a zoom level,
+    /// so the Maps-style `z` is converted back to an equivalent distance.
+    fn gearth_url(&self, lat: f64, lon: f64) -> String {
+        let zoom = (self.viewport.ppd * 360.0 / 256.0).log2().clamp(0.0, 21.0);
+        let distance = 35_200_000.0 / 2f64.powf(zoom);
+        format!("https://earth.google.com/web/@{lat:.6},{lon:.6},0a,{distance:.0}d,35y,0h,0t,0r")
+    }
+
     /// Ensures a profile tile source built from the finest dir.
     fn ensure_profile_tiles(&mut self) {
         let Some(dir) = self.dirs.first().map(|d| d.path.clone()) else {
@@ -447,6 +457,14 @@ impl App {
                 .on_hover_text("click two points to plot a terrain profile");
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .button("🌍")
+                    .on_hover_text("open current view in Google Earth")
+                    .clicked()
+                {
+                    let url = self.gearth_url(self.viewport.center_lat, self.viewport.center_lon);
+                    ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                }
                 if ui
                     .button("🗺")
                     .on_hover_text("open current view in Google Maps")
@@ -861,6 +879,7 @@ impl App {
         }
         let text = lines.join("\n");
         let gmaps_url = self.gmaps_url(lat, lon);
+        let gearth_url = self.gearth_url(lat, lon);
 
         let painter = ui.painter_at(clip);
         let anchor = self.viewport.world_to_screen(proj, lon, lat);
@@ -881,6 +900,9 @@ impl App {
                         }
                         if ui.small_button("maps").clicked() {
                             ui.ctx().open_url(egui::OpenUrl::new_tab(&gmaps_url));
+                        }
+                        if ui.small_button("earth").clicked() {
+                            ui.ctx().open_url(egui::OpenUrl::new_tab(&gearth_url));
                         }
                         if ui.small_button("✕").clicked() {
                             dismiss = true;
